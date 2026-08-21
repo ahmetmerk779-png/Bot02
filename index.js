@@ -5,7 +5,6 @@ const { pathfinder, Movements, goals } = require('mineflayer-pathfinder');
 const armorManager = require('mineflayer-armor-manager');
 const pvp = require('mineflayer-pvp').plugin;
 const tpsPlugin = require('mineflayer-tps')(mineflayer);
-const viewer = require('prismarine-viewer').mineflayer;
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -16,7 +15,6 @@ let bot = null;
 let currentConfig = null;
 let shouldReconnect = false;
 let autoDefense = true;
-let viewerStarted = false;
 let chatLogs = [];
 
 // --- OPTİMİZE EDİLMİŞ PATHFINDER HAREKET MOTORU ---
@@ -207,7 +205,6 @@ app.get('/api/status', (req, res) => {
 
 // --- BOT BAŞLATMA VE EVENTLER ---
 async function startBot(config) {
-  // ESM paket dinamik olarak import ediliyor
   const autoEatModule = await import('mineflayer-auto-eat');
   const autoeat = autoEatModule.plugin || autoEatModule.default;
 
@@ -236,7 +233,6 @@ async function startBot(config) {
     if (config.authPassword && config.authPassword.trim() !== '') {
       setTimeout(() => { bot.chat(`/login ${config.authPassword}`); chatLogs.push(`[SİSTEM] Otomatik giriş yapıldı.`); }, 1000);
     }
-    if (!viewerStarted) { try { viewer(bot, { port: 3001, firstPerson: true }); viewerStarted = true; } catch (err) {} }
   });
 
   bot.on('message', (message) => {
@@ -353,14 +349,10 @@ const html = `
     <div class="panel" style="width: 350px;">
       <h4>Canlı Envanter</h4>
       <div class="box-area" id="inventory-box" style="color: #a6e3a1;">Envanter boş.</div>
-      <h4 style="margin-top:20px;">3D Harita</h4>
-      <button onclick="toggleViewer()" class="btn-blue" id="viewer-btn" style="margin-top:0;">Haritayı Yükle</button>
-      <iframe id="viewer-frame" style="width:100%; height:200px; border:none; border-radius:6px; background:#11111b; margin-top:5px;"></iframe>
     </div>
   </div>
   <script>
     window.onload = () => { ['apiKey', 'host', 'username', 'authPassword'].forEach(id => { if(localStorage.getItem('mc_'+id)) document.getElementById(id).value = localStorage.getItem('mc_'+id); }); };
-    function toggleViewer() { const frame = document.getElementById('viewer-frame'); if(frame.src.includes('3001')) frame.src = ''; else frame.src = \`http://\${window.location.hostname}:3001\`; }
     async function sendChat() { const input = document.getElementById('chat-input'); if(input.value.trim() === '') return; await fetch('/api/chat', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({message: input.value}) }); input.value = ''; }
     async function sendCmd(action) { const res = await fetch('/api/command', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({action}) }); const data = await res.json(); if(data.message) alert(data.message); }
     async function startBot() { const data = { port: 25565, version: '1.21.11' }; ['apiKey', 'host', 'username', 'authPassword'].forEach(id => { data[id] = document.getElementById(id).value; localStorage.setItem('mc_'+id, data[id]); }); const res = await fetch('/api/start', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data) }); alert((await res.json()).message); }
@@ -387,4 +379,4 @@ app.get('/', (req, res) => {
   res.send(html);
 });
 
-app.listen(port, () => console.log(`Sunucu ${port} portunda çalışıyor`));
+app.listen(port, '0.0.0.0', () => console.log(`Sunucu ${port} portunda çalışıyor`));
