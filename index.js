@@ -254,7 +254,7 @@ function initBot() {
   bot = mineflayer.createBot({
     host: config.host,
     username: config.username,
-    version: '1.20.1', // veya auto
+    version: false, // Otomatik sürüm algılama (Packet mismatches engelleyici)
     hideErrors: true
   });
 
