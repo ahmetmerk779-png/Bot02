@@ -8,6 +8,7 @@
   },
   "dependencies": {
     "@google/generative-ai": "latest",
+    "canvas": "latest",
     "express": "latest",
     "minecraft-data": "latest",
     "mineflayer": "latest",
