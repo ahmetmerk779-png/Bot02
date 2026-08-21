@@ -2,7 +2,6 @@ const express = require('express');
 const mineflayer = require('mineflayer');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const { pathfinder, Movements, goals } = require('mineflayer-pathfinder');
-const autoeat = require('mineflayer-auto-eat').plugin;
 const armorManager = require('mineflayer-armor-manager');
 const pvp = require('mineflayer-pvp').plugin;
 const tpsPlugin = require('mineflayer-tps')(mineflayer);
@@ -25,7 +24,6 @@ function createOptimizedMovements(bot) {
   const mcData = require('minecraft-data')(bot.version);
   const movements = new Movements(bot, mcData);
 
-  // Kalabalık/karmaşık alanlarda CPU/RAM yükünü düşüren kısıtlamalar
   movements.canDig = false;
   movements.scafolding = false;
   movements.allowParkour = false;
@@ -75,7 +73,6 @@ Yakındaki Özel Bloklar: ${nearbyBlocks.length > 0 ? nearbyBlocks.join(', ') : 
 
 // --- AKILLI AI VE KOD ÜRETİCİ ---
 async function generateAiBehavior(sender, userMessage, apiKey) {
-  // Arayüzden API anahtarı gelmediyse Render'daki GEMINI_API_KEY ortam değişkenini kullanır
   const keyToUse = apiKey || process.env.GEMINI_API_KEY;
 
   if (!keyToUse) {
@@ -171,11 +168,11 @@ app.post('/api/command', (req, res) => {
   res.json({ message: 'Komut uygulandı: ' + action });
 });
 
-app.post('/api/start', (req, res) => {
+app.post('/api/start', async (req, res) => {
   if (bot) return res.status(400).json({ message: 'Bot çalışıyor!' });
   currentConfig = req.body;
   shouldReconnect = true; chatLogs = [];
-  startBot(currentConfig);
+  await startBot(currentConfig);
   res.json({ message: 'Bot başlatıldı.' });
 });
 
@@ -209,18 +206,27 @@ app.get('/api/status', (req, res) => {
 });
 
 // --- BOT BAŞLATMA VE EVENTLER ---
-function startBot(config) {
+async function startBot(config) {
+  // ESM paket dinamik olarak import ediliyor
+  const autoEatModule = await import('mineflayer-auto-eat');
+  const autoeat = autoEatModule.plugin || autoEatModule.default;
+
   bot = mineflayer.createBot({
     host: config.host, port: parseInt(config.port) || 25565,
     username: config.username, version: config.version || '1.21.11'
   });
 
-  bot.loadPlugin(pathfinder); bot.loadPlugin(autoeat);
-  bot.loadPlugin(armorManager); bot.loadPlugin(pvp); bot.loadPlugin(tpsPlugin);
+  bot.loadPlugin(pathfinder); 
+  if (autoeat) bot.loadPlugin(autoeat);
+  bot.loadPlugin(armorManager); 
+  bot.loadPlugin(pvp); 
+  bot.loadPlugin(tpsPlugin);
 
   bot.on('spawn', () => {
     console.log(`${bot.username} giriş yaptı!`);
-    bot.autoEat.options = { priority: 'foodPoints', startAt: 14, bannedFood: ['rotten_flesh'] };
+    if (bot.autoEat) {
+      bot.autoEat.options = { priority: 'foodPoints', startAt: 14, bannedFood: ['rotten_flesh'] };
+    }
     
     bot.pathfinder.thinkTimeout = 1000;
     bot.pathfinder.tickTimeout = 20;
