@@ -173,7 +173,9 @@ app.get('/', (req, res) => {
 
         const radarBox = document.getElementById('radarLogs');
         if (data.radar && data.radar.length > 0) {
-          radarBox.innerHTML = data.radar.map(e => `[${e.type}] ${e.name} (${e.distance}m)`).join('<br>');
+          radarBox.innerHTML = data.radar.map(function(e) {
+            return '[' + e.type + '] ' + e.name + ' (' + e.distance + 'm)';
+          }).join('<br>');
         } else {
           radarBox.innerHTML = 'Yakında kimse yok.';
         }
@@ -254,7 +256,7 @@ function initBot() {
   bot = mineflayer.createBot({
     host: config.host,
     username: config.username,
-    version: false, // Otomatik sürüm algılama (Packet mismatches engelleyici)
+    version: false, // Otomatik sürüm algılama
     hideErrors: true
   });
 
@@ -361,10 +363,10 @@ function initBot() {
   });
 }
 
-// KRİTİK: Çökmeleri Önleyici Global Hata Yakalayıcılar
+// Global Hata Yakalayıcılar
 process.on('uncaughtException', (err) => {
   console.log('[ÇÖKME ÖNLENDİ] Uncaught Exception:', err.message);
-  chatLogs.push(`[SİSTEM] Hata yakalandı (Çökme önlendi): ${err.message}`);
+  chatLogs.push(`[SİSTEM] Hata yakalandı: ${err.message}`);
 });
 
 process.on('unhandledRejection', (reason, promise) => {
