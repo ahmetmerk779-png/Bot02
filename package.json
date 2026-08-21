@@ -7,16 +7,16 @@
     "start": "node index.js"
   },
   "dependencies": {
-    "@google/generative-ai": "^0.21.0",
-    "express": "^4.21.1",
-    "minecraft-data": "^3.72.0",
-    "mineflayer": "^4.23.0",
-    "mineflayer-armor-manager": "^2.0.1",
-    "mineflayer-auto-eat": "^1.4.2",
-    "mineflayer-pathfinder": "^2.4.5",
-    "mineflayer-pvp": "^1.3.2",
-    "mineflayer-tps": "^1.0.2",
-    "prismarine-viewer": "^1.29.0"
+    "@google/generative-ai": "latest",
+    "express": "latest",
+    "minecraft-data": "latest",
+    "mineflayer": "latest",
+    "mineflayer-armor-manager": "latest",
+    "mineflayer-auto-eat": "latest",
+    "mineflayer-pathfinder": "latest",
+    "mineflayer-pvp": "latest",
+    "mineflayer-tps": "latest",
+    "prismarine-viewer": "latest"
   },
   "engines": {
     "node": ">=18.0.0"
