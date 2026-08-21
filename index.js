@@ -321,11 +321,14 @@ async function initBot() {
       bot.pathfinder.tickTimeout = 20;
     }
 
+    // OTOMATİK GİRİŞ (3 Saniye Gecikmeli)
     if (config.password && config.password.trim() !== '') {
       setTimeout(() => {
-        if (bot && !isTransferring) bot.chat(`/login ${config.password}`);
-        chatLogs.push(`[SİSTEM] Otomatik giriş (/login) gönderildi.`);
-      }, 1500);
+        if (bot && !isTransferring) {
+          bot.chat(`/login ${config.password}`);
+          chatLogs.push(`[SİSTEM] Otomatik giriş (/login) 3 saniye sonra gönderildi.`);
+        }
+      }, 3000);
     }
   });
 
