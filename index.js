@@ -2,7 +2,6 @@ const express = require('express');
 const http = require('http');
 const mineflayer = require('mineflayer');
 const { pathfinder, Movements, goals } = require('mineflayer-pathfinder');
-const autoEat = require('mineflayer-auto-eat').plugin;
 
 const app = express();
 const server = http.createServer(app);
@@ -249,7 +248,7 @@ app.post('/api/action', (req, res) => {
 });
 
 // Bot Oluşturma Fonksiyonu
-function initBot() {
+async function initBot() {
   botStatus = "Bağlanıyor...";
   chatLogs.push(`[SİSTEM] ${config.host} sunucusuna bağlanılıyor...`);
 
@@ -261,7 +260,15 @@ function initBot() {
   });
 
   bot.loadPlugin(pathfinder);
-  try { bot.loadPlugin(autoEat); } catch(e){}
+
+  // AutoEat Dinamik Import (ESM Uyumluluğu)
+  try {
+    const autoEatModule = await import('mineflayer-auto-eat');
+    const autoEat = autoEatModule.plugin || autoEatModule.default;
+    if (autoEat) bot.loadPlugin(autoEat);
+  } catch(e) {
+    console.log('[SİSTEM] AutoEat yüklenemedi:', e.message);
+  }
 
   bot.on('spawn', () => {
     botStatus = "Çalışıyor";
