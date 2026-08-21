@@ -75,8 +75,16 @@ Yakındaki Özel Bloklar: ${nearbyBlocks.length > 0 ? nearbyBlocks.join(', ') : 
 
 // --- AKILLI AI VE KOD ÜRETİCİ ---
 async function generateAiBehavior(sender, userMessage, apiKey) {
+  // Arayüzden API anahtarı gelmediyse Render'daki GEMINI_API_KEY ortam değişkenini kullanır
+  const keyToUse = apiKey || process.env.GEMINI_API_KEY;
+
+  if (!keyToUse) {
+    console.error("Gemini API Anahtarı bulunamadı! Lütfen Render panelinde GEMINI_API_KEY değişkenini ayarlayın.");
+    return null;
+  }
+
   const worldContext = getBotWorldContext(bot);
-  const genAI = new GoogleGenerativeAI(apiKey);
+  const genAI = new GoogleGenerativeAI(keyToUse);
   
   const model = genAI.getGenerativeModel({
     model: 'gemini-1.5-flash',
@@ -251,7 +259,8 @@ function startBot(config) {
     if (username === bot.username) return;
     bot.chat(`/msg ${username} Analiz ediyorum...`);
 
-    const aiResult = await generateAiBehavior(username, message, config.apiKey);
+    const apiKey = (config && config.apiKey) || process.env.GEMINI_API_KEY;
+    const aiResult = await generateAiBehavior(username, message, apiKey);
 
     if (!aiResult) {
       bot.chat(`/msg ${username} Bir şeyler ters gitti, durumu anlayamadım.`);
@@ -304,7 +313,7 @@ const html = `
   <div class="container">
     <div class="panel">
       <h2>Bot Kontrol Paneli</h2>
-      <input type="password" id="apiKey" placeholder="Gemini API Anahtarı">
+      <input type="password" id="apiKey" placeholder="Gemini API (Boşsa Render Env Kullanır)">
       <input type="text" id="host" placeholder="Sunucu IP">
       <input type="text" id="username" placeholder="Bot İsmi">
       <input type="password" id="authPassword" placeholder="Sunucu Şifresi (/login)">
