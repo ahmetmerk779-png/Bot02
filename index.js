@@ -79,6 +79,9 @@ app.get('/', (req, res) => {
     <div class="input-group">
       <input type="password" id="password" placeholder="Sunucu Şifresi (/login)">
     </div>
+    <div class="input-group">
+      <input type="text" id="version" placeholder="Minecraft Sürümü (Örn: 1.21.11 - Boşsa Otomatik)" value="1.21.11">
+    </div>
 
     <div class="btn-group">
       <button class="btn-start" onclick="startBot()">Başlat</button>
@@ -125,6 +128,7 @@ app.get('/', (req, res) => {
         host: document.getElementById('host').value,
         username: document.getElementById('username').value,
         password: document.getElementById('password').value,
+        version: document.getElementById('version').value,
         geminiKey: document.getElementById('geminiKey').value
       };
       await fetch('/api/start', {
@@ -252,10 +256,16 @@ async function initBot() {
   botStatus = "Bağlanıyor...";
   chatLogs.push(`[SİSTEM] ${config.host} sunucusuna bağlanılıyor...`);
 
+  // Minecraft sürüm belirleme
+  let targetVersion = false;
+  if (config.version && config.version.trim() !== '') {
+    targetVersion = config.version.trim();
+  }
+
   bot = mineflayer.createBot({
     host: config.host,
     username: config.username,
-    version: false, // Otomatik sürüm algılama
+    version: targetVersion,
     hideErrors: true
   });
 
@@ -296,7 +306,6 @@ async function initBot() {
   bot.on('chat', (username, message) => {
     chatLogs.push(`${username ? username + ': ' : ''}${message}`);
 
-    // Işınlanma / Aktarım Algılama -> Pathfinder Durdurma
     const transferKeywords = ['Aktarım', 'bekleyin', 'teleport', 'Işınlanıyor', 'Aktarılıyorsunuz', 'Sıranız:'];
     if (transferKeywords.some(kw => message.includes(kw))) {
       if (bot.pathfinder) {
@@ -319,7 +328,7 @@ async function initBot() {
     }
   });
 
-  // Işınlanma / Zorunlu Hareket (forcedMove) Olunca Pathfinder'ı İptal Et
+  // Işınlanma / Zorunlu Hareket Olunca Pathfinder'ı İptal Et
   bot.on('forcedMove', () => {
     if (bot.pathfinder) {
       bot.pathfinder.stop();
