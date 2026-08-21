@@ -1,7 +1,7 @@
 const express = require('express');
 const http = require('http');
 const mineflayer = require('mineflayer');
-const { pathfinder, Movements, goals } = require('mineflayer-pathfinder');
+const { pathfinder } = require('mineflayer-pathfinder');
 
 const app = express();
 const server = http.createServer(app);
@@ -16,6 +16,21 @@ let ping = "-";
 let tps = "-";
 let chatLogs = [];
 let radarEntities = [];
+let isTransferring = false;
+
+// Atılma/Kick Mesajını NBT Objesinden Temiz Metne Çevirici
+function parseChatReason(reason) {
+  if (!reason) return 'Bilinmeyen sebep';
+  if (typeof reason === 'string') return reason;
+  try {
+    const jsonStr = JSON.stringify(reason);
+    const textMatch = jsonStr.match(/"text":"([^"]+)"/);
+    if (textMatch && textMatch[1]) {
+      return textMatch[1];
+    }
+  } catch (e) {}
+  return typeof reason === 'object' ? JSON.stringify(reason) : String(reason);
+}
 
 // Express Rotaları / Control API
 app.get('/api/status', (req, res) => {
@@ -219,7 +234,7 @@ app.post('/api/stop', (req, res) => {
 
 app.post('/api/chat', (req, res) => {
   const { message } = req.body;
-  if (bot && message) {
+  if (bot && message && !isTransferring) {
     bot.chat(message);
     chatLogs.push(`[SİZ]: ${message}`);
   }
@@ -228,7 +243,7 @@ app.post('/api/chat', (req, res) => {
 
 app.post('/api/action', (req, res) => {
   const { action } = req.body;
-  if (!bot) return res.json({ success: false, message: 'Bot aktif değil' });
+  if (!bot || isTransferring) return res.json({ success: false, message: 'Bot meşgul veya aktif değil' });
 
   if (action === 'jump') {
     bot.setControlState('jump', true);
@@ -251,9 +266,24 @@ app.post('/api/action', (req, res) => {
   res.json({ success: true });
 });
 
+// Aktarım Durumunda Botu Dondurma Fonksiyonu
+function handleTransferLock() {
+  isTransferring = true;
+  if (bot) {
+    bot.clearControlStates();
+    if (bot.pathfinder) {
+      try { bot.pathfinder.stop(); } catch(e){}
+    }
+  }
+  setTimeout(() => {
+    isTransferring = false;
+  }, 4000);
+}
+
 // Bot Oluşturma Fonksiyonu
 async function initBot() {
   botStatus = "Bağlanıyor...";
+  isTransferring = false;
   chatLogs.push(`[SİSTEM] ${config.host} sunucusuna bağlanılıyor...`);
 
   let targetVersion = false;
@@ -270,7 +300,6 @@ async function initBot() {
 
   bot.loadPlugin(pathfinder);
 
-  // AutoEat Dinamik Import (ESM Uyumluluğu)
   try {
     const autoEatModule = await import('mineflayer-auto-eat');
     const autoEat = autoEatModule.plugin || autoEatModule.default;
@@ -292,56 +321,49 @@ async function initBot() {
       bot.pathfinder.tickTimeout = 20;
     }
 
-    // OTOMATİK GİRİŞ
     if (config.password && config.password.trim() !== '') {
       setTimeout(() => {
-        if (bot) bot.chat(`/login ${config.password}`);
+        if (bot && !isTransferring) bot.chat(`/login ${config.password}`);
         chatLogs.push(`[SİSTEM] Otomatik giriş (/login) gönderildi.`);
       }, 1500);
     }
   });
 
-  // Chat Dinleyicisi & Aktarım Durdurma
+  bot.on('respawn', () => {
+    handleTransferLock();
+    chatLogs.push('[SİSTEM] Sunucu/Dünya değişti (Respawn).');
+  });
+
+  // Chat & Aktarım Dinleyicisi
+  const checkTransfer = (msg) => {
+    const transferKeywords = ['Aktarım', 'bekleyin', 'teleport', 'Işınlanıyor', 'Aktarılıyorsunuz', 'Sıranız:'];
+    if (transferKeywords.some(kw => msg.includes(kw))) {
+      handleTransferLock();
+      chatLogs.push('[SİSTEM] Aktarım algılandı. Tüm hareketler ve paketler donduruldu.');
+    }
+  };
+
   bot.on('chat', (username, message) => {
     chatLogs.push(`${username ? username + ': ' : ''}${message}`);
-
-    const transferKeywords = ['Aktarım', 'bekleyin', 'teleport', 'Işınlanıyor', 'Aktarılıyorsunuz', 'Sıranız:'];
-    if (transferKeywords.some(kw => message.includes(kw))) {
-      if (bot.pathfinder) {
-        bot.pathfinder.stop();
-        chatLogs.push('[SİSTEM] Aktarım/Işınlanma algılandı. Pathfinder durduruldu.');
-      }
-    }
+    checkTransfer(message);
   });
 
-  // Mesaj (system message) Dinleyicisi
   bot.on('messagestr', (message) => {
     chatLogs.push(message);
-
-    const transferKeywords = ['Aktarım', 'bekleyin', 'teleport', 'Işınlanıyor', 'Aktarılıyorsunuz', 'Sıranız:'];
-    if (transferKeywords.some(kw => message.includes(kw))) {
-      if (bot.pathfinder) {
-        bot.pathfinder.stop();
-        chatLogs.push('[SİSTEM] Aktarım algılandı. Pathfinder durduruldu.');
-      }
-    }
+    checkTransfer(message);
   });
 
-  // Işınlanma / Zorunlu Hareket Olunca Pathfinder'ı İptal Et
   bot.on('forcedMove', () => {
-    if (bot.pathfinder) {
-      bot.pathfinder.stop();
-      chatLogs.push('[SİSTEM] Işınlanma tamamlandı. Yürüme hedefi sıfırlandı.');
-    }
+    handleTransferLock();
+    chatLogs.push('[SİSTEM] Zorunlu hareket/ışınlanma algılandı.');
   });
 
   bot.on('time', () => {
     if (bot) ping = bot.player ? bot.player.ping : '-';
   });
 
-  // Radar Bilgilerini Güncelle (Her 2 saniyede)
   setInterval(() => {
-    if (bot && bot.entities) {
+    if (bot && bot.entities && !isTransferring) {
       const entities = Object.values(bot.entities)
         .filter(e => e !== bot.entity && (e.type === 'player' || e.type === 'mob'))
         .map(e => ({
@@ -358,18 +380,10 @@ async function initBot() {
     }
   }, 2000);
 
-  // Atılma Sebebini Metne Çeviren Düzeltme
   bot.on('kicked', (reason) => {
     botStatus = "Atıldı (Kicked)";
-    let parsedReason = reason;
-    try {
-      if (typeof reason === 'object') {
-        parsedReason = JSON.stringify(reason);
-      }
-    } catch (e) {
-      parsedReason = String(reason);
-    }
-    chatLogs.push(`[SİSTEM] Bot sunucudan atıldı: ${parsedReason}`);
+    const parsed = parseChatReason(reason);
+    chatLogs.push(`[SİSTEM] Bot sunucudan atıldı: ${parsed}`);
     bot = null;
   });
 
@@ -387,7 +401,6 @@ async function initBot() {
   });
 }
 
-// Global Hata Yakalayıcılar
 process.on('uncaughtException', (err) => {
   console.log('[ÇÖKME ÖNLENDİ] Uncaught Exception:', err.message);
   chatLogs.push(`[SİSTEM] Hata yakalandı: ${err.message}`);
