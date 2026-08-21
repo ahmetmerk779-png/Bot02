@@ -256,7 +256,6 @@ async function initBot() {
   botStatus = "Bağlanıyor...";
   chatLogs.push(`[SİSTEM] ${config.host} sunucusuna bağlanılıyor...`);
 
-  // Minecraft sürüm belirleme
   let targetVersion = false;
   if (config.version && config.version.trim() !== '') {
     targetVersion = config.version.trim();
@@ -359,9 +358,18 @@ async function initBot() {
     }
   }, 2000);
 
+  // Atılma Sebebini Metne Çeviren Düzeltme
   bot.on('kicked', (reason) => {
     botStatus = "Atıldı (Kicked)";
-    chatLogs.push(`[SİSTEM] Bot sunucudan atıldı: ${reason}`);
+    let parsedReason = reason;
+    try {
+      if (typeof reason === 'object') {
+        parsedReason = JSON.stringify(reason);
+      }
+    } catch (e) {
+      parsedReason = String(reason);
+    }
+    chatLogs.push(`[SİSTEM] Bot sunucudan atıldı: ${parsedReason}`);
     bot = null;
   });
 
