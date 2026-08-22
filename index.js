@@ -20,11 +20,11 @@ let ping = "-";
 let tps = "-";
 let chatLogs = [];
 let radarEntities = [];
-let humanizerTimer = null;
 let armorTimer = null;
 let autoReconnectTimer = null;
 let isQueueing = false;
 let isManualStop = false;
+let isLoggedIn = false;
 let mcData = null;
 let isFishing = false;
 let config = {};
@@ -106,7 +106,7 @@ function resetAllStates() {
 }
 
 function followPlayer(username) {
-  if (isQueueing) return;
+  if (isQueueing || !bot) return;
   resetAllStates();
   const target = bot.players[username]?.entity;
   if (!target) return bot.chat(`${username} yakında bulunamadı.`);
@@ -118,7 +118,7 @@ function followPlayer(username) {
 }
 
 function attackTarget(targetName) {
-  if (isQueueing) return;
+  if (isQueueing || !bot) return;
   resetAllStates();
   let target = bot.players[targetName]?.entity || bot.nearestEntity(e => (e.type === 'mob' || e.type === 'player') && e.username === targetName);
   if (!target) return bot.chat(`${targetName} hedefi bulunamadı.`);
@@ -127,7 +127,7 @@ function attackTarget(targetName) {
 }
 
 async function mineBlock(blockName) {
-  if (isQueueing) return;
+  if (isQueueing || !bot) return;
   resetAllStates();
   if (!mcData || !mcData.blocksByName[blockName]) return bot.chat(`Geçersiz blok: ${blockName}`);
   const target = bot.findBlock({ matching: mcData.blocksByName[blockName].id, maxDistance: 25 });
@@ -140,7 +140,7 @@ async function mineBlock(blockName) {
 }
 
 async function startFishing() {
-  if (isQueueing) return;
+  if (isQueueing || !bot) return;
   resetAllStates();
   isFishing = true;
   const rod = bot.inventory.items().find(i => i.name.includes('fishing_rod'));
@@ -211,13 +211,12 @@ async function processAIAgent(sender, userMessage) {
 
 function cleanBotState() {
   resetAllStates();
-  if (humanizerTimer) clearInterval(humanizerTimer);
   if (armorTimer) clearInterval(armorTimer);
-  humanizerTimer = null; armorTimer = null;
+  armorTimer = null;
 }
 
 function equipBestArmor() {
-  if (!bot || !bot.inventory || isQueueing) return;
+  if (!bot || !bot.inventory || isQueueing || !bot.physicsEnabled) return;
   const slots = { helmet: 'head', chestplate: 'torso', leggings: 'legs', boots: 'feet' };
   for (const item of bot.inventory.items()) {
     for (const [type, slot] of Object.entries(slots)) {
@@ -236,9 +235,23 @@ function triggerAutoReconnect() {
   }, 5000);
 }
 
+function parseKickReason(reason) {
+  if (!reason) return "Bilinmeyen Neden";
+  if (typeof reason === 'string') return reason;
+  if (typeof reason === 'object') {
+    if (reason.text) return reason.text;
+    if (reason.extra && Array.isArray(reason.extra)) {
+      return reason.extra.map(e => (typeof e === 'string' ? e : e.text || '')).join('');
+    }
+    return JSON.stringify(reason);
+  }
+  return String(reason);
+}
+
 async function initBot() {
   cleanBotState();
   botStatus = "Bağlanıyor...";
+  isLoggedIn = false;
 
   bot = mineflayer.createBot({
     host: config.host,
@@ -262,8 +275,10 @@ async function initBot() {
   bot.on('spawn', () => {
     botStatus = "Çalışıyor";
     isQueueing = false;
-    chatLogs.push(`[SİSTEM] Bot sunucuya girdi/aktarıldı.`);
-    bot.physicsEnabled = true;
+    chatLogs.push(`[SİSTEM] Bot dünyaya doğdu.`);
+    
+    // Anti-cheat kick önleme: İlk 3 saniye fizikleri kapat
+    bot.physicsEnabled = false;
     resetAllStates();
     mcData = require('minecraft-data')(bot.version);
 
@@ -271,28 +286,47 @@ async function initBot() {
       bot.autoEat.options = { priority: 'foodPoints', startAt: 14, bannedFood: ['rotten_flesh'] };
     }
 
-    if (config.password && config.password.trim() !== '') {
-      setTimeout(() => { if (bot && !isQueueing) bot.chat(`/login ${config.password}`); }, 1500);
+    // Otomatik Login (Sadece ilk girişte 1 defa)
+    if (config.password && config.password.trim() !== '' && !isLoggedIn) {
+      setTimeout(() => { 
+        if (bot) {
+          bot.chat(`/login ${config.password}`);
+          isLoggedIn = true;
+        }
+      }, 1500);
     }
 
-    if (!armorTimer) armorTimer = setInterval(() => equipBestArmor(), 5000);
+    // Harita tamamen yüklenince hareketi aç
+    setTimeout(() => {
+      if (bot) {
+        bot.physicsEnabled = true;
+        if (!armorTimer) armorTimer = setInterval(() => equipBestArmor(), 7000);
+      }
+    }, 3500);
   });
 
-  // Sunucu değiştirdiğinde (Lobi -> ASMP) botun çökmesini önler
   bot.on('respawn', () => {
-    chatLogs.push('[SİSTEM] Sunucu/Dünya değişti (ASMP Aktarımı). Bot güncelleniyor...');
+    chatLogs.push('[SİSTEM] Sunucu aktarımı yapıldı (Lobiden Alt Sunucuya).');
+    if (bot) bot.physicsEnabled = false;
     resetAllStates();
     isQueueing = false;
+    
+    setTimeout(() => {
+      if (bot) bot.physicsEnabled = true;
+    }, 3500);
   });
 
   bot.on('chat', async (username, message) => {
     chatLogs.push(`${username ? username + ': ' : ''}${message}`);
 
-    // Sıra veya aktarım tespiti
+    if (message.includes('Giriş başarılı') || message.includes('Login successfull') || message.includes('Başarıyla giriş yaptınız')) {
+      isLoggedIn = true;
+    }
+
     if (message.includes('sırasına girdiniz') || message.includes('Sıranız:') || message.includes('aktarılıyorsunuz')) {
       isQueueing = true;
       resetAllStates();
-      bot.physicsEnabled = false; // Sıradayken paketi dondur
+      if (bot) bot.physicsEnabled = false;
       botStatus = "Sırada Bekliyor";
       return;
     }
@@ -303,9 +337,12 @@ async function initBot() {
 
   bot.on('messagestr', (msg) => {
     chatLogs.push(msg);
+    if (msg.includes('Giriş başarılı') || msg.includes('Login successfull') || msg.includes('Başarıyla giriş yaptınız')) {
+      isLoggedIn = true;
+    }
     if (msg.includes('sırasına girdiniz') || msg.includes('Sıranız:')) {
       isQueueing = true;
-      bot.physicsEnabled = false;
+      if (bot) bot.physicsEnabled = false;
       botStatus = "Sırada Bekliyor";
     }
   });
@@ -313,7 +350,7 @@ async function initBot() {
   bot.on('time', () => { if (bot) ping = bot.player ? bot.player.ping : '-'; });
 
   setInterval(() => {
-    if (bot && bot.entities && !isQueueing) {
+    if (bot && bot.entities && !isQueueing && bot.physicsEnabled) {
       const entities = Object.values(bot.entities)
         .filter(e => e !== bot.entity && (e.type === 'player' || e.type === 'mob'))
         .map(e => ({
@@ -328,7 +365,8 @@ async function initBot() {
   }, 2000);
 
   bot.on('kicked', (reason) => {
-    chatLogs.push(`[SİSTEM] Atıldı: ${reason}`);
+    const kickMessage = parseKickReason(reason);
+    chatLogs.push(`[SİSTEM] Atıldı: ${kickMessage}`);
     cleanBotState();
     triggerAutoReconnect();
   });
