@@ -17,7 +17,6 @@ let ping = "-";
 let tps = "-";
 let chatLogs = [];
 let radarEntities = [];
-let isNavigating = false;
 let humanizerTimer = null;
 let armorTimer = null;
 
@@ -30,6 +29,15 @@ function parseChatReason(reason) {
     if (textMatch && textMatch[1]) return textMatch[1];
   } catch (e) {}
   return typeof reason === 'object' ? JSON.stringify(reason) : String(reason);
+}
+
+function resetPathfinder() {
+  if (bot && bot.pathfinder) {
+    try {
+      bot.pathfinder.setGoal(null);
+      bot.pathfinder.stop();
+    } catch (e) {}
+  }
 }
 
 function equipBestArmor() {
@@ -294,7 +302,7 @@ app.post('/api/action', (req, res) => {
     const isSneaking = bot.getControlState('sneak');
     bot.setControlState('sneak', !isSneaking);
   } else if (action === 'stop') {
-    if (bot.pathfinder) bot.pathfinder.stop();
+    resetPathfinder();
     bot.clearControlStates();
   } else if (action === 'attack') {
     const entity = bot.nearestEntity(e => e.type === 'mob' || e.type === 'player');
@@ -309,6 +317,7 @@ app.post('/api/action', (req, res) => {
 });
 
 function cleanBotState() {
+  resetPathfinder();
   if (humanizerTimer) {
     clearInterval(humanizerTimer);
     humanizerTimer = null;
@@ -334,7 +343,7 @@ async function initBot() {
     username: config.username,
     version: targetVersion,
     hideErrors: true,
-    viewDistance: 'far',
+    viewDistance: 'tiny', // Velocity aktarımındaki paket yoğunluğunu düşürür
     checkTimeoutInterval: 90 * 1000
   });
 
@@ -388,12 +397,20 @@ async function initBot() {
   });
 
   bot.on('respawn', () => {
-    chatLogs.push('[SİSTEM] Lobi/Aktarım gerçekleşti. Fizik ve konum senkronize edildi.');
+    resetPathfinder();
+    chatLogs.push('[SİSTEM] Lobi/Aktarım yapıldı. Pathfinder durduruldu ve fizik yenilendi.');
     bot.physicsEnabled = true;
   });
 
   const checkAuth = (msg) => {
     const lower = msg.toLowerCase();
+    
+    // Aktarım uyarısı geldiği anda Pathfinder'ı dondur
+    if (lower.includes('aktarım') || lower.includes('bekleyin') || lower.includes('ışınlanıyor')) {
+      resetPathfinder();
+      if (bot.clearControlStates) bot.clearControlStates();
+    }
+
     if ((lower.includes('/login') || lower.includes('şifre') || lower.includes('girin')) && config.password) {
       setTimeout(() => {
         if (bot) bot.chat(`/login ${config.password}`);
