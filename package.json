@@ -1,7 +1,7 @@
 {
   "name": "minecraft-bot-panel",
   "version": "1.0.0",
-  "description": "Mineflayer Bot Web Paneli, Groq AI, Auto Armor ve Minecraft Data Entegrasyonu",
+  "description": "Mineflayer Bot Web Paneli ve Groq AI Entegrasyonu",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
@@ -11,7 +11,6 @@
     "groq-sdk": "^0.7.0",
     "minecraft-data": "^3.71.0",
     "mineflayer": "^4.20.1",
-    "mineflayer-auto-armor": "^2.1.0",
     "mineflayer-auto-eat": "^3.3.0",
     "mineflayer-pathfinder": "^2.4.5"
   },
