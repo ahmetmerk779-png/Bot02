@@ -2,7 +2,6 @@ const express = require('express');
 const http = require('http');
 const mineflayer = require('mineflayer');
 const { pathfinder } = require('mineflayer-pathfinder');
-const autoArmor = require('mineflayer-auto-armor');
 const Groq = require('groq-sdk');
 
 const app = express();
@@ -20,6 +19,7 @@ let chatLogs = [];
 let radarEntities = [];
 let isTransferring = false;
 let humanizerTimer = null;
+let armorTimer = null;
 
 function parseChatReason(reason) {
   if (!reason) return 'Bilinmeyen sebep';
@@ -30,6 +30,20 @@ function parseChatReason(reason) {
     if (textMatch && textMatch[1]) return textMatch[1];
   } catch (e) {}
   return typeof reason === 'object' ? JSON.stringify(reason) : String(reason);
+}
+
+function equipBestArmor() {
+  if (!bot || !bot.inventory || isTransferring) return;
+  const slots = { helmet: 'head', chestplate: 'torso', leggings: 'legs', boots: 'feet' };
+  const items = bot.inventory.items();
+
+  for (const item of items) {
+    for (const [type, slot] of Object.entries(slots)) {
+      if (item.name.endsWith(type)) {
+        bot.equip(item, slot).catch(() => {});
+      }
+    }
+  }
 }
 
 async function askGroq(userPrompt, senderName) {
@@ -299,6 +313,10 @@ function cleanBotState() {
     clearInterval(humanizerTimer);
     humanizerTimer = null;
   }
+  if (armorTimer) {
+    clearInterval(armorTimer);
+    armorTimer = null;
+  }
 }
 
 function handleTransferLock() {
@@ -334,7 +352,6 @@ async function initBot() {
   });
 
   bot.loadPlugin(pathfinder);
-  bot.loadPlugin(autoArmor);
 
   try {
     const autoEatModule = await import('mineflayer-auto-eat');
@@ -366,16 +383,17 @@ async function initBot() {
       bot.autoEat.options = { priority: 'foodPoints', startAt: 14, bannedFood: ['rotten_flesh'] };
     }
 
-    if (bot.autoArmor) {
-      bot.autoArmor.equip();
-    }
-
     if (bot.pathfinder) {
       bot.pathfinder.thinkTimeout = 1000;
       bot.pathfinder.tickTimeout = 20;
     }
 
     cleanBotState();
+
+    armorTimer = setInterval(() => {
+      equipBestArmor();
+    }, 5000);
+
     humanizerTimer = setInterval(() => {
       if (bot && bot.entity && !isTransferring) {
         const yaw = (Math.random() - 0.5) * 0.2;
