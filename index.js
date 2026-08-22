@@ -17,7 +17,7 @@ let ping = "-";
 let tps = "-";
 let chatLogs = [];
 let radarEntities = [];
-let isTransferring = false;
+let isNavigating = false;
 let humanizerTimer = null;
 let armorTimer = null;
 
@@ -33,7 +33,7 @@ function parseChatReason(reason) {
 }
 
 function equipBestArmor() {
-  if (!bot || !bot.inventory || isTransferring) return;
+  if (!bot || !bot.inventory) return;
   const slots = { helmet: 'head', chestplate: 'torso', leggings: 'legs', boots: 'feet' };
   const items = bot.inventory.items();
 
@@ -46,22 +46,6 @@ function equipBestArmor() {
   }
 }
 
-// Anti-cheat paket denetimlerini aşmak için insanı taklit eden gecikmeli tıklama
-async function safeClickWindow(slot, mouseButton = 0, mode = 0) {
-  if (!bot || !bot.currentWindow || isTransferring) return;
-  const delay = Math.floor(Math.random() * 150) + 150;
-  
-  setTimeout(async () => {
-    try {
-      if (bot && bot.currentWindow) {
-        await bot.clickWindow(slot, mouseButton, mode);
-      }
-    } catch (err) {
-      console.log('[GUI Tıklama Hatası]:', err.message);
-    }
-  }, delay);
-}
-
 async function askGroq(userPrompt, senderName) {
   const apiKey = config.groqKey || process.env.GROQ_API_KEY;
   if (!apiKey) return null;
@@ -72,15 +56,15 @@ async function askGroq(userPrompt, senderName) {
       messages: [
         {
           role: 'system',
-          content: 'Sen Minecraft oyununda bir oyuncusun. Türkçe, samimi, komik ve çok kısa (en fazla 1-2 cümle) yanıtlar ver. Asla uzun paragraflar yazma.'
+          content: 'Sen Minecraft oyununda aktif bir oyuncusun. Türkçe, aşırı samimi, eğlenceli ve en fazla 1 kısa cümlelik yanıtlar ver.'
         },
         {
           role: 'user',
-          content: `${senderName} sana şöyle dedi: "${userPrompt}"`
+          content: `${senderName} şöyle yazdı: "${userPrompt}"`
         }
       ],
       model: 'llama-3.1-8b-instant',
-      max_tokens: 100
+      max_tokens: 80
     });
 
     if (completion.choices && completion.choices[0] && completion.choices[0].message) {
@@ -141,7 +125,7 @@ app.get('/', (req, res) => {
     <h1>Bot Kontrol Paneli</h1>
     
     <div class="input-group">
-      <input type="text" id="groqKey" placeholder="Groq API Key (gsk_...) (Boşsa Env)">
+      <input type="text" id="groqKey" placeholder="Groq API Key (Boşsa Env)">
     </div>
     <div class="input-group">
       <input type="text" id="host" placeholder="Sunucu IP" value="play.aesirmc.com">
@@ -153,7 +137,7 @@ app.get('/', (req, res) => {
       <input type="password" id="password" placeholder="Sunucu Şifresi (/login)">
     </div>
     <div class="input-group">
-      <input type="text" id="version" placeholder="Minecraft Sürümü (Örn: 1.21.11)" value="1.21.11">
+      <input type="text" id="version" placeholder="Minecraft Sürümü" value="1.21.11">
     </div>
 
     <div class="btn-group">
@@ -292,7 +276,7 @@ app.post('/api/stop', (req, res) => {
 
 app.post('/api/chat', (req, res) => {
   const { message } = req.body;
-  if (bot && message && !isTransferring) {
+  if (bot && message) {
     bot.chat(message);
     chatLogs.push(`[SİZ]: ${message}`);
   }
@@ -301,7 +285,7 @@ app.post('/api/chat', (req, res) => {
 
 app.post('/api/action', (req, res) => {
   const { action } = req.body;
-  if (!bot || isTransferring) return res.json({ success: false, message: 'Bot meşgul veya aktif değil' });
+  if (!bot) return res.json({ success: false, message: 'Bot aktif değil' });
 
   if (action === 'jump') {
     bot.setControlState('jump', true);
@@ -335,23 +319,9 @@ function cleanBotState() {
   }
 }
 
-function handleTransferLock() {
-  isTransferring = true;
-  if (bot) {
-    bot.clearControlStates();
-    if (bot.pathfinder) {
-      try { bot.pathfinder.stop(); } catch(e){}
-    }
-  }
-  setTimeout(() => {
-    isTransferring = false;
-  }, 4000);
-}
-
 async function initBot() {
   cleanBotState();
   botStatus = "Bağlanıyor...";
-  isTransferring = false;
   chatLogs.push(`[SİSTEM] ${config.host} sunucusuna bağlanılıyor...`);
 
   let targetVersion = false;
@@ -365,8 +335,7 @@ async function initBot() {
     version: targetVersion,
     hideErrors: true,
     viewDistance: 'far',
-    checkTimeoutInterval: 60 * 1000, // Lobi/BungeeCord geçişlerinde 60 saniyeye kadar timeout düşmelerini engeller
-    defaultChatPatterns: false
+    checkTimeoutInterval: 90 * 1000
   });
 
   bot.loadPlugin(pathfinder);
@@ -377,93 +346,66 @@ async function initBot() {
     if (autoEat) bot.loadPlugin(autoEat);
   } catch(e) {}
 
-  bot.once('login', () => {
-    try {
-      if (bot._client) {
-        bot._client.write('custom_payload', {
-          channel: 'minecraft:brand',
-          data: Buffer.from('\x07vanilla')
-        });
-      }
-    } catch (e) {}
-  });
-
   bot.on('resourcePack', () => {
-    chatLogs.push('[SİSTEM] Sunucu Kaynak Paketi otomatik reddedildi.');
-    if (bot.denyResourcePack) bot.denyResourcePack();
+    chatLogs.push('[SİSTEM] Kaynak paketi kabul ediliyor...');
+    if (bot.acceptResourcePack) bot.acceptResourcePack();
   });
 
   bot.on('spawn', () => {
     botStatus = "Çalışıyor";
-    chatLogs.push(`[SİSTEM] Bot sunucuya girdi!`);
+    chatLogs.push(`[SİSTEM] Bot oyunda aktif!`);
+
+    bot.physicsEnabled = true;
 
     if (bot.autoEat) {
       bot.autoEat.options = { priority: 'foodPoints', startAt: 14, bannedFood: ['rotten_flesh'] };
-    }
-
-    if (bot.pathfinder) {
-      bot.pathfinder.thinkTimeout = 1000;
-      bot.pathfinder.tickTimeout = 20;
     }
 
     cleanBotState();
 
     armorTimer = setInterval(() => {
       equipBestArmor();
-    }, 5000);
+    }, 4000);
 
     humanizerTimer = setInterval(() => {
-      if (bot && bot.entity && !isTransferring) {
-        const yaw = (Math.random() - 0.5) * 0.2;
-        const pitch = (Math.random() - 0.5) * 0.1;
+      if (bot && bot.entity) {
+        const yaw = (Math.random() - 0.5) * 0.1;
+        const pitch = (Math.random() - 0.5) * 0.05;
         try {
           bot.look(bot.entity.yaw + yaw, bot.entity.pitch + pitch, true);
         } catch(e) {}
       }
-    }, 2500);
+    }, 3000);
 
     if (config.password && config.password.trim() !== '') {
       setTimeout(() => {
-        if (bot && !isTransferring) {
+        if (bot) {
           bot.chat(`/login ${config.password}`);
-          chatLogs.push(`[SİSTEM] Otomatik giriş (/login) gönderildi.`);
+          chatLogs.push(`[SİSTEM] Otomatik giriş gönderildi.`);
         }
-      }, 3000);
+      }, 2000);
     }
   });
 
   bot.on('respawn', () => {
-    handleTransferLock();
-    chatLogs.push('[SİSTEM] Sunucu/Dünya değişti (Respawn). Paketler senkronize ediliyor.');
-    
-    setTimeout(() => {
-      isTransferring = false;
-    }, 2500);
+    chatLogs.push('[SİSTEM] Lobi/Aktarım gerçekleşti. Fizik ve konum senkronize edildi.');
+    bot.physicsEnabled = true;
   });
 
-  const checkTransferAndAuth = (msg) => {
+  const checkAuth = (msg) => {
     const lower = msg.toLowerCase();
-    
     if ((lower.includes('/login') || lower.includes('şifre') || lower.includes('girin')) && config.password) {
       setTimeout(() => {
-        if (bot && !isTransferring) {
-          bot.chat(`/login ${config.password}`);
-        }
+        if (bot) bot.chat(`/login ${config.password}`);
       }, 1000);
-    }
-
-    const transferKeywords = ['aktarım', 'bekleyin', 'teleport', 'ışınlanıyor', 'aktarılıyorsunuz', 'sıranız:'];
-    if (transferKeywords.some(kw => lower.includes(kw))) {
-      handleTransferLock();
-      chatLogs.push('[SİSTEM] Aktarım algılandı. Hareketler donduruldu.');
     }
   };
 
   bot.on('chat', async (username, message) => {
     chatLogs.push(`${username ? username + ': ' : ''}${message}`);
-    checkTransferAndAuth(message);
+    checkAuth(message);
 
-    if (username === bot.username || isTransferring) return;
+    if (username === bot.username) return;
 
     if (message.toLowerCase().includes(bot.username.toLowerCase())) {
       const aiReply = await askGroq(message, username);
@@ -476,12 +418,7 @@ async function initBot() {
 
   bot.on('messagestr', (message) => {
     chatLogs.push(message);
-    checkTransferAndAuth(message);
-  });
-
-  bot.on('forcedMove', () => {
-    handleTransferLock();
-    chatLogs.push('[SİSTEM] Zorunlu hareket/ışınlanma algılandı.');
+    checkAuth(message);
   });
 
   bot.on('time', () => {
@@ -489,7 +426,7 @@ async function initBot() {
   });
 
   setInterval(() => {
-    if (bot && bot.entities && !isTransferring) {
+    if (bot && bot.entities) {
       const entities = Object.values(bot.entities)
         .filter(e => e !== bot.entity && (e.type === 'player' || e.type === 'mob'))
         .map(e => ({
@@ -510,33 +447,28 @@ async function initBot() {
     cleanBotState();
     botStatus = "Atıldı (Kicked)";
     const parsed = parseChatReason(reason);
-    chatLogs.push(`[SİSTEM] Bot sunucudan atıldı: ${parsed}`);
+    chatLogs.push(`[SİSTEM] Bot atıldı: ${parsed}`);
     bot = null;
   });
 
   bot.on('end', () => {
     cleanBotState();
     botStatus = "Kapalı";
-    chatLogs.push(`[SİSTEM] Bot sunucudan ayrıldı.`);
+    chatLogs.push(`[SİSTEM] Sunucu bağlantısı kesildi.`);
     bot = null;
   });
 
   bot.on('error', (err) => {
     chatLogs.push(`[HATA] ${err.message}`);
-    if (bot && bot.pathfinder) {
-      try { bot.pathfinder.stop(); } catch(e){}
-    }
   });
 }
 
 process.on('uncaughtException', (err) => {
-  console.log('[ÇÖKME ÖNLENDİ] Uncaught Exception:', err.message);
-  chatLogs.push(`[SİSTEM] Hata yakalandı: ${err.message}`);
+  console.log('[ÇÖKME ÖNLENDİ]', err.message);
 });
 
-process.on('unhandledRejection', (reason, promise) => {
-  console.log('[ÇÖKME ÖNLENDİ] Unhandled Rejection:', reason);
-  chatLogs.push(`[SİSTEM] Arka plan hatası önlendi.`);
+process.on('unhandledRejection', (reason) => {
+  console.log('[ÇÖKME ÖNLENDİ]', reason);
 });
 
 server.listen(PORT, () => {
