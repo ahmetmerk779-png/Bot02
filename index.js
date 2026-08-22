@@ -241,6 +241,36 @@ function parseKickReason(reason) {
   return String(reason);
 }
 
+// Işınlanma ve Sıra Mesajlarını Algılama ve Kilitleme
+function handleTransferLock(msg) {
+  const isTransfer = 
+    msg.includes('Sıranız:') || 
+    msg.includes('sırasına girdiniz') || 
+    msg.includes('aktarılıyorsunuz') || 
+    msg.includes('Aktarım başladı') || 
+    msg.includes('Aktarım yapıyorsunuz') || 
+    msg.includes('lütfen bekleyin') || 
+    msg.includes('AesirGuard');
+
+  if (isTransfer) {
+    isQueueing = true;
+    setPhysicsState(false);
+    resetAllStates();
+    botStatus = "Işınlanıyor / Aktarılıyor...";
+
+    // 3.5 saniye boyunca sunucuya hiçbir hareket/paket gönderme
+    setTimeout(() => {
+      if (bot && isQueueing) {
+        setPhysicsState(true);
+        isQueueing = false;
+        botStatus = "Çalışıyor";
+      }
+    }, 3500);
+    return true;
+  }
+  return false;
+}
+
 async function initBot() {
   cleanBotState();
   botStatus = "Bağlanıyor...";
@@ -281,7 +311,6 @@ async function initBot() {
       }, 2000);
     }
 
-    // Doğduktan 3 saniye sonra fiziği güvenle aç
     setTimeout(() => {
       if (bot) {
         setPhysicsState(true);
@@ -297,7 +326,21 @@ async function initBot() {
     }, 8000);
   });
 
-  // Sunucu geçiş paketinde (Lobi -> ASMP) fiziği anında kapat
+  // TPA veya Işınlanma Paketlerinde Otomatik Dondurma
+  bot.on('forcedMove', () => {
+    isQueueing = true;
+    setPhysicsState(false);
+    resetAllStates();
+    botStatus = "Işınlandı (Tampon Bekleniyor)";
+    setTimeout(() => {
+      if (bot) {
+        setPhysicsState(true);
+        isQueueing = false;
+        botStatus = "Çalışıyor";
+      }
+    }, 3000);
+  });
+
   bot.on('respawn', () => {
     isQueueing = true;
     setPhysicsState(false);
@@ -306,17 +349,6 @@ async function initBot() {
     chatLogs.push('[SİSTEM] Alt sunucuya aktarılıyor, paket gönderimi donduruldu.');
   });
 
-  const checkQueueMessage = (msg) => {
-    if (msg.includes('Sıranız:') || msg.includes('sırasına girdiniz') || msg.includes('aktarılıyorsunuz') || msg.includes('AesirGuard')) {
-      isQueueing = true;
-      setPhysicsState(false);
-      resetAllStates();
-      botStatus = "Sırada Bekliyor";
-      return true;
-    }
-    return false;
-  };
-
   bot.on('chat', async (username, message) => {
     chatLogs.push(`${username ? username + ': ' : ''}${message}`);
 
@@ -324,7 +356,7 @@ async function initBot() {
       isLoggedIn = true;
     }
 
-    if (checkQueueMessage(message)) return;
+    if (handleTransferLock(message)) return;
     if (username === bot.username || isQueueing) return;
     
     await processAIAgent(username, message);
@@ -335,7 +367,7 @@ async function initBot() {
     if (msg.includes('Giriş başarılı') || msg.includes('Login successfull') || msg.includes('Başarıyla giriş yaptınız')) {
       isLoggedIn = true;
     }
-    checkQueueMessage(msg);
+    handleTransferLock(msg);
   });
 
   bot.on('time', () => { if (bot) ping = bot.player ? bot.player.ping : '-'; });
