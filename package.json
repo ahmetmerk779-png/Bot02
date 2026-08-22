@@ -1,18 +1,21 @@
 {
-  "name": "minecraft-bot-panel",
+  "name": "minecraft-ai-agent",
   "version": "1.0.0",
-  "description": "Mineflayer Bot Web Paneli ve Groq AI Entegrasyonu",
+  "description": "Otonom Groq AI Agent Minecraft Bot",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
     "express": "^4.19.2",
-    "groq-sdk": "^0.7.0",
-    "minecraft-data": "^3.71.0",
+    "groq-sdk": "^0.5.0",
+    "minecraft-data": "^3.66.0",
     "mineflayer": "^4.20.1",
-    "mineflayer-auto-eat": "^3.3.0",
-    "mineflayer-pathfinder": "^2.4.5"
+    "mineflayer-auto-eat": "^5.1.0",
+    "mineflayer-collectblock": "^1.6.0",
+    "mineflayer-pathfinder": "^2.4.5",
+    "mineflayer-pvp": "^1.3.2",
+    "vec3": "^0.1.8"
   },
   "engines": {
     "node": ">=18.0.0"
