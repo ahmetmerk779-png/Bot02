@@ -1,8 +1,11 @@
 const express = require('express');
 const http = require('http');
 const mineflayer = require('mineflayer');
-const { pathfinder } = require('mineflayer-pathfinder');
+const { pathfinder, goals, Movements } = require('mineflayer-pathfinder');
+const { plugin: pvp } = require('mineflayer-pvp');
+const { plugin: collectBlock } = require('mineflayer-collectblock');
 const Groq = require('groq-sdk');
+const vec3 = require('vec3');
 
 const app = express();
 const server = http.createServer(app);
@@ -20,6 +23,322 @@ let radarEntities = [];
 let humanizerTimer = null;
 let armorTimer = null;
 let isQueueing = false;
+let mcData = null;
+let isFishing = false;
+let config = {};
+
+// --- GROQ YAPAY ZEKA ARAÇLARI (TOOLS) DEFINITIONS ---
+const botTools = [
+  {
+    type: "function",
+    function: {
+      name: "follow_player",
+      description: "Belirtilen oyuncunun yanına gider ve onu takip eder.",
+      parameters: {
+        type: "object",
+        properties: {
+          target: { type: "string", description: "Takip edilecek oyuncunun adı" }
+        },
+        required: ["target"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "attack_target",
+      description: "Belirtilen oyuncuya veya yaratığa saldırmak için PvP başlatır.",
+      parameters: {
+        type: "object",
+        properties: {
+          target: { type: "string", description: "Saldırılacak oyuncu/yaratık adı" }
+        },
+        required: ["target"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "stop_all_actions",
+      description: "Tüm takibi, PvP'yi, kazmayı ve balık tutmayı anında durdurur.",
+      parameters: { type: "object", properties: {} }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "mine_block",
+      description: "Etraftaki belirli bir blok türünü arar, yanına gidip kazar ve toplar.",
+      parameters: {
+        type: "object",
+        properties: {
+          blockName: { type: "string", description: "Kazılacak blok adı (ör: iron_ore, diamond_ore, stone, dirt)" }
+        },
+        required: ["blockName"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "start_fishing",
+      description: "Eline olta alıp otonom balık tutmaya başlar.",
+      parameters: { type: "object", properties: {} }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "farm_crops",
+      description: "Yakındaki olgunlaşmış buğdayları/mahsülleri toplar ve yerine yenisini eker.",
+      parameters: { type: "object", properties: {} }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "drop_inventory",
+      description: "Envanterdeki eşyaları yere atar.",
+      parameters: {
+        type: "object",
+        properties: {
+          itemName: { type: "string", description: "Atılacak eşya adı (boş bırakılırsa tümünü atar)" }
+        }
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "say_chat",
+      description: "Sadece sohbetten oyuncuya yanıt verir, fiziksel eylem yapmaz.",
+      parameters: {
+        type: "object",
+        properties: {
+          message: { type: "string", description: "Sohbete yazılacak cümle" }
+        },
+        required: ["message"]
+      }
+    }
+  }
+];
+
+// --- FİZİKSEL BOT EYLEMLERİ ---
+
+function resetAllStates() {
+  isFishing = false;
+  if (bot) {
+    try { bot.pathfinder.setGoal(null); bot.pathfinder.stop(); } catch (e) {}
+    try { bot.pvp.stop(); } catch (e) {}
+  }
+}
+
+function followPlayer(username) {
+  resetAllStates();
+  const target = bot.players[username]?.entity;
+  if (!target) {
+    bot.chat(`${username} yakında görünmüyor.`);
+    return;
+  }
+  const defaultMove = new Movements(bot, mcData);
+  defaultMove.canDig = false;
+  bot.pathfinder.setMovements(defaultMove);
+  bot.pathfinder.setGoal(new goals.GoalFollow(target, 1), true);
+  bot.chat(`Geliyorum ${username}!`);
+}
+
+function attackTarget(targetName) {
+  resetAllStates();
+  let target = bot.players[targetName]?.entity;
+  if (!target) {
+    target = bot.nearestEntity(e => (e.type === 'mob' || e.type === 'player') && e.username === targetName);
+  }
+  if (!target) {
+    bot.chat(`${targetName} hedefi bulunamadı.`);
+    return;
+  }
+  bot.pvp.attack(target);
+  bot.chat(`${targetName} hedefine pvp başlatıldı!`);
+}
+
+async function mineBlock(blockName) {
+  resetAllStates();
+  if (!mcData || !mcData.blocksByName[blockName]) {
+    bot.chat(`${blockName} ismi Minecraft veritabanında bulunamadı.`);
+    return;
+  }
+  const blockType = mcData.blocksByName[blockName].id;
+  const target = bot.findBlock({ matching: blockType, maxDistance: 25 });
+  if (!target) {
+    bot.chat(`Yakında ${blockName} bloğu yok.`);
+    return;
+  }
+  bot.chat(`${blockName} bloğuna gidiliyor ve kazılıyor...`);
+  bot.collectBlock.collect(target, (err) => {
+    if (err) bot.chat('Kazma işlemi yarıda kesildi.');
+    else bot.chat('Blok başarıyla kazıldı ve toplandı.');
+  });
+}
+
+async function startFishing() {
+  resetAllStates();
+  isFishing = true;
+  const rod = bot.inventory.items().find(i => i.name.includes('fishing_rod'));
+  if (!rod) {
+    bot.chat('Envanterimde olta bulunamadı!');
+    isFishing = false;
+    return;
+  }
+  try {
+    await bot.equip(rod, 'hand');
+    bot.chat('Balık tutmaya başlıyorum...');
+    loopFishing();
+  } catch (e) {
+    bot.chat('Olta ele alınamadı.');
+  }
+}
+
+async function loopFishing() {
+  if (!isFishing || !bot) return;
+  try {
+    await bot.fish();
+    bot.chat('Bir şeyler yakaladım! Tekrar atıyorum.');
+    setTimeout(() => loopFishing(), 1000);
+  } catch (err) {
+    if (isFishing) {
+      setTimeout(() => loopFishing(), 3000);
+    }
+  }
+}
+
+async function farmCrops() {
+  resetAllStates();
+  if (!mcData) return;
+  const wheatId = mcData.blocksByName['wheat']?.id;
+  if (!wheatId) return;
+
+  const crop = bot.findBlock({
+    matching: (b) => b.type === wheatId && b.metadata === 7,
+    maxDistance: 15
+  });
+
+  if (!crop) {
+    bot.chat('Yakında olgunlaşmış mahsül bulunamadı.');
+    return;
+  }
+
+  bot.chat('Mahsül toplanıyor ve yeniden ekiliyor...');
+  try {
+    await bot.pathfinder.goto(new goals.GoalBlock(crop.position.x, crop.position.y, crop.position.z));
+    await bot.dig(crop);
+    
+    const seed = bot.inventory.items().find(i => i.name.includes('seed'));
+    if (seed) {
+      await bot.equip(seed, 'hand');
+      const farmland = bot.blockAt(crop.position.down(1));
+      await bot.placeBlock(farmland, new vec3(0, 1, 0));
+    }
+    bot.chat('Çiftçilik tamamlandı.');
+  } catch (err) {
+    bot.chat('Çiftçilik yaparken sorun oluştu.');
+  }
+}
+
+async function dropInventory(itemName) {
+  const items = bot.inventory.items();
+  if (items.length === 0) {
+    bot.chat('Envanterim zaten boş.');
+    return;
+  }
+  bot.chat('Eşyalar yere bırakılıyor...');
+  for (const item of items) {
+    if (!itemName || item.name.includes(itemName)) {
+      try {
+        await bot.tossStack(item);
+      } catch (e) {}
+    }
+  }
+}
+
+// --- GROQ AI AGENT İŞLEYİCİSİ ---
+
+async function processAIAgent(sender, userMessage) {
+  const apiKey = config.groqKey || process.env.GROQ_API_KEY;
+  if (!apiKey || !bot || isQueueing) return;
+
+  const inventorySummary = bot.inventory ? bot.inventory.items().map(i => i.name).join(', ') : 'Boş';
+  const botState = {
+    health: bot.health,
+    food: bot.food,
+    position: bot.entity ? { x: Math.round(bot.entity.position.x), y: Math.round(bot.entity.position.y), z: Math.round(bot.entity.position.z) } : null,
+    nearbyPlayers: radarEntities.filter(e => e.type === 'Oyuncu').map(e => e.name),
+    inventory: inventorySummary
+  };
+
+  try {
+    const groq = new Groq({ apiKey });
+    const response = await groq.chat.completions.create({
+      model: "llama-3.1-8b-instant",
+      messages: [
+        {
+          role: "system",
+          content: `Sen Minecraft'ta tam özgürlüğe ve bilince sahip otonom bir AI oyuncususun.
+Senin anlık durumun: ${JSON.stringify(botState)}
+
+Gelen mesajlara göre araçları (tools) kullanarak hangi aksiyonu alacağına (takip, saldırı, maden kazma, balık tutma, çiftçilik, durma veya eşya atma) TAMAMEN SEN KARAR VER. 
+Eğer sadece konuşman gerekiyorsa say_chat aracını seç.`
+        },
+        { role: "user", content: `${sender}: "${userMessage}"` }
+      ],
+      tools: botTools,
+      tool_choice: "auto"
+    });
+
+    const choice = response.choices[0].message;
+
+    if (choice.tool_calls && choice.tool_calls.length > 0) {
+      for (const call of choice.tool_calls) {
+        const fnName = call.function.name;
+        const args = JSON.parse(call.function.arguments || '{}');
+
+        switch (fnName) {
+          case 'follow_player':
+            followPlayer(args.target || sender);
+            break;
+          case 'attack_target':
+            attackTarget(args.target || sender);
+            break;
+          case 'stop_all_actions':
+            resetAllStates();
+            bot.chat('Tüm eylemler durduruldu.');
+            break;
+          case 'mine_block':
+            mineBlock(args.blockName);
+            break;
+          case 'start_fishing':
+            startFishing();
+            break;
+          case 'farm_crops':
+            farmCrops();
+            break;
+          case 'drop_inventory':
+            dropInventory(args.itemName);
+            break;
+          case 'say_chat':
+            if (args.message) bot.chat(args.message);
+            break;
+        }
+      }
+    } else if (choice.content) {
+      bot.chat(choice.content.trim());
+    }
+  } catch (err) {
+    console.error('[AI AGENT HATA]', err.message);
+  }
+}
+
+// --- BOT KURULUM VE SUNUCU KODLARI ---
 
 function parseChatReason(reason) {
   if (!reason) return 'Bilinmeyen sebep';
@@ -32,300 +351,22 @@ function parseChatReason(reason) {
   return typeof reason === 'object' ? JSON.stringify(reason) : String(reason);
 }
 
-function resetPathfinder() {
-  if (bot && bot.pathfinder) {
-    try {
-      bot.pathfinder.setGoal(null);
-      bot.pathfinder.stop();
-    } catch (e) {}
-  }
+function cleanBotState() {
+  resetAllStates();
+  if (humanizerTimer) clearInterval(humanizerTimer);
+  if (armorTimer) clearInterval(armorTimer);
+  humanizerTimer = null;
+  armorTimer = null;
 }
 
 function equipBestArmor() {
   if (!bot || !bot.inventory || isQueueing) return;
   const slots = { helmet: 'head', chestplate: 'torso', leggings: 'legs', boots: 'feet' };
   const items = bot.inventory.items();
-
   for (const item of items) {
     for (const [type, slot] of Object.entries(slots)) {
-      if (item.name.endsWith(type)) {
-        bot.equip(item, slot).catch(() => {});
-      }
+      if (item.name.endsWith(type)) bot.equip(item, slot).catch(() => {});
     }
-  }
-}
-
-async function askGroq(userPrompt, senderName) {
-  const apiKey = config.groqKey || process.env.GROQ_API_KEY;
-  if (!apiKey) return null;
-
-  try {
-    const groq = new Groq({ apiKey });
-    const completion = await groq.chat.completions.create({
-      messages: [
-        {
-          role: 'system',
-          content: 'Sen Minecraft oyununda aktif bir oyuncusun. Türkçe, aşırı samimi, eğlenceli ve en fazla 1 kısa cümlelik yanıtlar ver.'
-        },
-        {
-          role: 'user',
-          content: `${senderName} şöyle yazdı: "${userPrompt}"`
-        }
-      ],
-      model: 'llama-3.1-8b-instant',
-      max_tokens: 80
-    });
-
-    if (completion.choices && completion.choices[0] && completion.choices[0].message) {
-      return completion.choices[0].message.content.trim().replace(/\n/g, ' ');
-    }
-  } catch (err) {
-    console.error('[GROQ HATA]', err.message);
-  }
-  return null;
-}
-
-app.get('/api/status', (req, res) => {
-  res.json({
-    status: botStatus,
-    ping: ping,
-    tps: tps,
-    chatLogs: chatLogs.slice(-50),
-    radar: radarEntities
-  });
-});
-
-app.get('/', (req, res) => {
-  res.send(`
-<!DOCTYPE html>
-<html lang="tr">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Bot Kontrol Paneli</title>
-  <style>
-    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #1a1b26; color: #a9b1d6; margin: 0; padding: 20px; display: flex; justify-content: center; }
-    .container { width: 100%; max-width: 480px; background: #24283b; padding: 20px; border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.4); }
-    h1 { text-align: center; color: #7aa2f7; font-size: 24px; margin-bottom: 20px; }
-    .input-group { margin-bottom: 12px; }
-    input { width: 100%; padding: 12px; border-radius: 8px; border: 1px solid #3b4261; background: #1f2335; color: #c0caf5; box-sizing: border-box; font-size: 14px; }
-    input:focus { outline: none; border-color: #7aa2f7; }
-    .btn-group { display: flex; gap: 10px; margin-bottom: 15px; }
-    button { flex: 1; padding: 12px; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; font-size: 14px; transition: 0.2s; }
-    .btn-start { background: #9ece6a; color: #15161e; }
-    .btn-stop { background: #f7768e; color: #15161e; }
-    .btn-action { background: #7aa2f7; color: #15161e; }
-    .btn-warning { background: #ff9e64; color: #15161e; }
-    .stats { display: flex; gap: 10px; margin-bottom: 15px; }
-    .stat-box { flex: 1; background: #1f2335; padding: 10px; border-radius: 8px; text-align: center; }
-    .stat-label { font-size: 11px; color: #737aa2; text-transform: uppercase; font-weight: bold; }
-    .stat-val { font-size: 18px; font-weight: bold; color: #bb9af7; margin-top: 4px; }
-    .status-bar { text-align: center; font-weight: bold; margin-bottom: 15px; font-size: 16px; color: #e0af68; }
-    .box { background: #1f2335; border-radius: 8px; padding: 12px; margin-bottom: 15px; max-height: 200px; overflow-y: auto; font-family: monospace; font-size: 12px; }
-    .chat-box { height: 180px; }
-    .chat-input { display: flex; gap: 8px; margin-top: 8px; }
-    .chat-input input { flex: 1; }
-    .chat-input button { flex: initial; width: 80px; background: #7aa2f7; color: #15161e; }
-    .radar-box { height: 120px; color: #9ece6a; }
-  </style>
-</head>
-<body>
-  <div class="container">
-    <h1>Bot Kontrol Paneli</h1>
-    
-    <div class="input-group">
-      <input type="text" id="groqKey" placeholder="Groq API Key (Boşsa Env)">
-    </div>
-    <div class="input-group">
-      <input type="text" id="host" placeholder="Sunucu IP" value="play.aesirmc.com">
-    </div>
-    <div class="input-group">
-      <input type="text" id="username" placeholder="Bot İsmi">
-    </div>
-    <div class="input-group">
-      <input type="password" id="password" placeholder="Sunucu Şifresi (/login)">
-    </div>
-    <div class="input-group">
-      <input type="text" id="version" placeholder="Minecraft Sürümü" value="1.21.11">
-    </div>
-
-    <div class="btn-group">
-      <button class="btn-start" onclick="startBot()">Başlat</button>
-      <button class="btn-stop" onclick="stopBot()">Durdur</button>
-    </div>
-
-    <div class="status-bar" id="statusText">Durum: Kapalı (-)</div>
-
-    <div class="stats">
-      <div class="stat-box">
-        <div class="stat-label">PING</div>
-        <div class="stat-val" id="pingVal">- ms</div>
-      </div>
-      <div class="stat-box">
-        <div class="stat-label">TPS</div>
-        <div class="stat-val" id="tpsVal">-</div>
-      </div>
-    </div>
-
-    <h3 style="text-align:center; color:#7aa2f7; font-size:14px; margin:10px 0;">Hızlı Komutlar</h3>
-    <div class="btn-group">
-      <button class="btn-action" onclick="sendAction('jump')">Zıpla</button>
-      <button class="btn-action" onclick="sendAction('sneak')">Eğil/Kalk</button>
-      <button class="btn-stop" onclick="sendAction('stop')">Dur/İptal</button>
-    </div>
-    <div style="margin-bottom:15px;">
-      <button class="btn-warning" style="width:100%" onclick="sendAction('attack')">Yakındakine Saldır</button>
-    </div>
-
-    <h3 style="text-align:center; color:#7aa2f7; font-size:14px;">Canlı Sunucu Sohbeti</h3>
-    <div class="box chat-box" id="chatLogs"></div>
-    <div class="chat-input">
-      <input type="text" id="chatMsg" placeholder="Mesaj gönder..." onkeypress="if(event.key==='Enter') sendChat()">
-      <button onclick="sendChat()">Gönder</button>
-    </div>
-
-    <h3 style="text-align:center; color:#7aa2f7; font-size:14px; margin-top:15px;">Çevre Radarı</h3>
-    <div class="box radar-box" id="radarLogs">Yakında kimse yok.</div>
-  </div>
-
-  <script>
-    async function startBot() {
-      const data = {
-        host: document.getElementById('host').value,
-        username: document.getElementById('username').value,
-        password: document.getElementById('password').value,
-        version: document.getElementById('version').value,
-        groqKey: document.getElementById('groqKey').value
-      };
-      await fetch('/api/start', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data)
-      });
-    }
-
-    async function stopBot() {
-      await fetch('/api/stop', { method: 'POST' });
-    }
-
-    async function sendChat() {
-      const input = document.getElementById('chatMsg');
-      const msg = input.value;
-      if (!msg) return;
-      await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: msg })
-      });
-      input.value = '';
-    }
-
-    async function sendAction(action) {
-      await fetch('/api/action', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: action })
-      });
-    }
-
-    setInterval(async () => {
-      try {
-        const res = await fetch('/api/status');
-        const data = await res.json();
-        document.getElementById('statusText').innerText = 'Durum: ' + data.status;
-        document.getElementById('pingVal').innerText = data.ping + ' ms';
-        document.getElementById('tpsVal').innerText = data.tps;
-
-        const chatBox = document.getElementById('chatLogs');
-        chatBox.innerHTML = data.chatLogs.join('<br>');
-        chatBox.scrollTop = chatBox.scrollHeight;
-
-        const radarBox = document.getElementById('radarLogs');
-        if (data.radar && data.radar.length > 0) {
-          radarBox.innerHTML = data.radar.map(function(e) {
-            return '[' + e.type + '] ' + e.name + ' (' + e.distance + 'm)';
-          }).join('<br>');
-        } else {
-          radarBox.innerHTML = 'Yakında kimse yok.';
-        }
-      } catch (e) {}
-    }, 1000);
-  </script>
-</body>
-</html>
-  `);
-});
-
-let config = {};
-
-app.post('/api/start', (req, res) => {
-  config = req.body;
-  if (!config.host || !config.username) {
-    return res.status(400).json({ error: 'Sunucu IP ve Bot İsmi gereklidir!' });
-  }
-
-  if (bot) {
-    try { bot.quit(); } catch(e){}
-  }
-
-  initBot();
-  res.json({ success: true });
-});
-
-app.post('/api/stop', (req, res) => {
-  cleanBotState();
-  if (bot) {
-    bot.quit();
-    bot = null;
-    botStatus = "Kapalı";
-    chatLogs.push("[SİSTEM] Bot kullanıcı tarafından durduruldu.");
-  }
-  res.json({ success: true });
-});
-
-app.post('/api/chat', (req, res) => {
-  const { message } = req.body;
-  if (bot && message) {
-    bot.chat(message);
-    chatLogs.push(`[SİZ]: ${message}`);
-  }
-  res.json({ success: true });
-});
-
-app.post('/api/action', (req, res) => {
-  const { action } = req.body;
-  if (!bot || isQueueing) return res.json({ success: false, message: 'Bot sırada veya aktif değil' });
-
-  if (action === 'jump') {
-    bot.setControlState('jump', true);
-    setTimeout(() => bot.setControlState('jump', false), 500);
-  } else if (action === 'sneak') {
-    const isSneaking = bot.getControlState('sneak');
-    bot.setControlState('sneak', !isSneaking);
-  } else if (action === 'stop') {
-    resetPathfinder();
-    bot.clearControlStates();
-  } else if (action === 'attack') {
-    const entity = bot.nearestEntity(e => e.type === 'mob' || e.type === 'player');
-    if (entity) {
-      bot.attack(entity);
-      chatLogs.push(`[SİSTEM] ${entity.username || entity.name} adlı varlığa saldırıldı!`);
-    } else {
-      chatLogs.push(`[SİSTEM] Yakında saldırılacak hedef bulunamadı.`);
-    }
-  }
-  res.json({ success: true });
-});
-
-function cleanBotState() {
-  resetPathfinder();
-  if (humanizerTimer) {
-    clearInterval(humanizerTimer);
-    humanizerTimer = null;
-  }
-  if (armorTimer) {
-    clearInterval(armorTimer);
-    armorTimer = null;
   }
 }
 
@@ -333,12 +374,8 @@ async function initBot() {
   cleanBotState();
   botStatus = "Bağlanıyor...";
   isQueueing = false;
-  chatLogs.push(`[SİSTEM] ${config.host} sunucusuna bağlanılıyor...`);
 
-  let targetVersion = false;
-  if (config.version && config.version.trim() !== '') {
-    targetVersion = config.version.trim();
-  }
+  let targetVersion = config.version ? config.version.trim() : "1.21.11";
 
   bot = mineflayer.createBot({
     host: config.host,
@@ -350,6 +387,8 @@ async function initBot() {
   });
 
   bot.loadPlugin(pathfinder);
+  bot.loadPlugin(pvp);
+  bot.loadPlugin(collectBlock);
 
   try {
     const autoEatModule = await import('mineflayer-auto-eat');
@@ -357,18 +396,13 @@ async function initBot() {
     if (autoEat) bot.loadPlugin(autoEat);
   } catch(e) {}
 
-  bot.on('resourcePack', () => {
-    chatLogs.push('[SİSTEM] Kaynak paketi kabul ediliyor...');
-    if (bot.acceptResourcePack) bot.acceptResourcePack();
-  });
-
   bot.on('spawn', () => {
     botStatus = "Çalışıyor";
-    chatLogs.push(`[SİSTEM] Bot oyuna bağlandı! Sıra ve aktarım bekleniyor...`);
-
-    // Aktarım/Sıra esnasında kopmaması için fiziği baştan kapalı tut
+    chatLogs.push(`[SİSTEM] Bot bağlandı.`);
     bot.physicsEnabled = false;
-    resetPathfinder();
+    resetAllStates();
+
+    mcData = require('minecraft-data')(bot.version);
 
     if (bot.autoEat) {
       bot.autoEat.options = { priority: 'foodPoints', startAt: 14, bannedFood: ['rotten_flesh'] };
@@ -376,95 +410,31 @@ async function initBot() {
 
     cleanBotState();
 
-    // Oyun tam yüklendikten 3 saniye sonra sistemleri aktifleştir
     setTimeout(() => {
       if (bot && !isQueueing) {
         bot.physicsEnabled = true;
-        chatLogs.push('[SİSTEM] Hareket ve Fizik aktifleştirildi.');
-
-        armorTimer = setInterval(() => {
-          equipBestArmor();
-        }, 5000);
-
-        humanizerTimer = setInterval(() => {
-          if (bot && bot.entity && !isQueueing) {
-            const yaw = (Math.random() - 0.5) * 0.1;
-            const pitch = (Math.random() - 0.5) * 0.05;
-            try {
-              bot.look(bot.entity.yaw + yaw, bot.entity.pitch + pitch, true);
-            } catch(e) {}
-          }
-        }, 3000);
+        chatLogs.push('[SİSTEM] Bot otonom AI Agent modunda aktif!');
+        armorTimer = setInterval(() => equipBestArmor(), 5000);
       }
-    }, 3500);
+    }, 4000);
 
     if (config.password && config.password.trim() !== '') {
       setTimeout(() => {
-        if (bot && !isQueueing) {
-          bot.chat(`/login ${config.password}`);
-          chatLogs.push(`[SİSTEM] Otomatik giriş gönderildi.`);
-        }
+        if (bot && !isQueueing) bot.chat(`/login ${config.password}`);
       }, 2000);
     }
   });
 
-  bot.on('respawn', () => {
-    isQueueing = true;
-    bot.physicsEnabled = false;
-    resetPathfinder();
-    cleanBotState();
-    chatLogs.push('[SİSTEM] Sunucu/Lobi aktarımı gerçekleşiyor. Tüm paket akışı donduruldu.');
-
-    setTimeout(() => {
-      if (bot) {
-        isQueueing = false;
-        bot.physicsEnabled = true;
-        chatLogs.push('[SİSTEM] Aktarım tamamlandı. Bot hazır.');
-      }
-    }, 4000);
-  });
-
-  const checkAuthAndQueue = (msg) => {
-    const lower = msg.toLowerCase();
-
-    // AesirGuard ve Sıralama algılandığında tam dondurma
-    if (lower.includes('sıranız') || lower.includes('aesirguard') || lower.includes('aktarım') || lower.includes('bekleyin')) {
-      isQueueing = true;
-      bot.physicsEnabled = false;
-      resetPathfinder();
-      if (bot.clearControlStates) bot.clearControlStates();
-    }
-
-    if ((lower.includes('/login') || lower.includes('şifre') || lower.includes('girin')) && config.password) {
-      setTimeout(() => {
-        if (bot) bot.chat(`/login ${config.password}`);
-      }, 1000);
-    }
-  };
-
   bot.on('chat', async (username, message) => {
     chatLogs.push(`${username ? username + ': ' : ''}${message}`);
-    checkAuthAndQueue(message);
-
     if (username === bot.username || isQueueing) return;
-
-    if (message.toLowerCase().includes(bot.username.toLowerCase())) {
-      const aiReply = await askGroq(message, username);
-      if (aiReply && bot) {
-        bot.chat(aiReply);
-        chatLogs.push(`[AI YANIT]: ${aiReply}`);
-      }
-    }
+    
+    // Tüm mesajları ve komutları Otonom Yapay Zeka Ajanına Aktarır
+    await processAIAgent(username, message);
   });
 
-  bot.on('messagestr', (message) => {
-    chatLogs.push(message);
-    checkAuthAndQueue(message);
-  });
-
-  bot.on('time', () => {
-    if (bot) ping = bot.player ? bot.player.ping : '-';
-  });
+  bot.on('messagestr', (msg) => chatLogs.push(msg));
+  bot.on('time', () => { if (bot) ping = bot.player ? bot.player.ping : '-'; });
 
   setInterval(() => {
     if (bot && bot.entities && !isQueueing) {
@@ -475,9 +445,8 @@ async function initBot() {
           type: e.type === 'player' ? 'Oyuncu' : 'Yaratık',
           distance: Math.round(bot.entity.position.distanceTo(e.position))
         }))
-        .filter(e => e.distance <= 60)
+        .filter(e => e.distance <= 50)
         .sort((a, b) => a.distance - b.distance);
-
       radarEntities = entities.slice(0, 10);
     } else {
       radarEntities = [];
@@ -486,32 +455,103 @@ async function initBot() {
 
   bot.on('kicked', (reason) => {
     cleanBotState();
-    botStatus = "Atıldı (Kicked)";
-    const parsed = parseChatReason(reason);
-    chatLogs.push(`[SİSTEM] Bot atıldı: ${parsed}`);
+    botStatus = "Atıldı";
+    chatLogs.push(`[SİSTEM] Bot atıldı: ${parseChatReason(reason)}`);
     bot = null;
   });
 
   bot.on('end', () => {
     cleanBotState();
     botStatus = "Kapalı";
-    chatLogs.push(`[SİSTEM] Sunucu bağlantısı kesildi.`);
+    chatLogs.push(`[SİSTEM] Bağlantı kesildi.`);
     bot = null;
   });
 
-  bot.on('error', (err) => {
-    chatLogs.push(`[HATA] ${err.message}`);
-  });
+  bot.on('error', (err) => chatLogs.push(`[HATA] ${err.message}`));
 }
 
-process.on('uncaughtException', (err) => {
-  console.log('[ÇÖKME ÖNLENDİ]', err.message);
+// --- EXPRESS WEB PANEL KODLARI ---
+
+app.get('/api/status', (req, res) => {
+  res.json({ status: botStatus, ping, tps, chatLogs: chatLogs.slice(-50), radar: radarEntities });
 });
 
-process.on('unhandledRejection', (reason) => {
-  console.log('[ÇÖKME ÖNLENDİ]', reason);
+app.post('/api/start', (req, res) => {
+  config = req.body;
+  if (!config.host || !config.username) return res.status(400).json({ error: 'Bilgiler eksik!' });
+  if (bot) { try { bot.quit(); } catch(e){} }
+  initBot();
+  res.json({ success: true });
 });
 
-server.listen(PORT, () => {
-  console.log(`Sunucu ${PORT} portunda çalışıyor`);
+app.post('/api/stop', (req, res) => {
+  cleanBotState();
+  if (bot) { bot.quit(); bot = null; botStatus = "Kapalı"; }
+  res.json({ success: true });
 });
+
+app.post('/api/chat', (req, res) => {
+  if (bot && req.body.message) { bot.chat(req.body.message); }
+  res.json({ success: true });
+});
+
+app.get('/', (req, res) => {
+  res.send(`
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI Minecraft Bot Control</title>
+  <style>
+    body { background: #1a1b26; color: #a9b1d6; font-family: sans-serif; padding: 20px; display: flex; justify-content: center; }
+    .box { width: 100%; max-width: 480px; background: #24283b; padding: 20px; border-radius: 12px; }
+    input, button { width: 100%; padding: 10px; margin-bottom: 8px; border-radius: 6px; border: none; box-sizing: border-box; }
+    input { background: #1f2335; color: #fff; }
+    button { background: #7aa2f7; font-weight: bold; cursor: pointer; }
+    .chat { height: 180px; background: #1f2335; overflow-y: auto; padding: 8px; font-size: 12px; border-radius: 6px; }
+  </style>
+</head>
+<body>
+  <div class="box">
+    <h2>Full Otonom AI Agent Panel</h2>
+    <input id="groqKey" placeholder="Groq API Key">
+    <input id="host" value="play.aesirmc.com" placeholder="IP">
+    <input id="username" placeholder="Bot Kullanıcı Adı">
+    <input id="password" type="password" placeholder="Şifre">
+    <input id="version" value="1.21.11" placeholder="Sürüm">
+    <button onclick="start()">Başlat</button>
+    <button onclick="stop()" style="background:#f7768e;">Durdur</button>
+    <div id="status" style="margin:10px 0; font-weight:bold;">Durum: Kapalı</div>
+    <div class="chat" id="chat"></div>
+  </div>
+  <script>
+    async function start() {
+      await fetch('/api/start', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({
+        host: document.getElementById('host').value,
+        username: document.getElementById('username').value,
+        password: document.getElementById('password').value,
+        version: document.getElementById('version').value,
+        groqKey: document.getElementById('groqKey').value
+      })});
+    }
+    async function stop() { await fetch('/api/stop', { method: 'POST' }); }
+    setInterval(async () => {
+      try {
+        const res = await fetch('/api/status');
+        const d = await res.json();
+        document.getElementById('status').innerText = 'Durum: ' + d.status;
+        const c = document.getElementById('chat');
+        c.innerHTML = d.chatLogs.join('<br>');
+        c.scrollTop = c.scrollHeight;
+      } catch(e){}
+    }, 1000);
+  </script>
+</body>
+</html>
+  `);
+});
+
+process.on('uncaughtException', err => console.log('[ÇÖKME ÖNLENDİ]', err.message));
+process.on('unhandledRejection', reason => console.log('[ÇÖKME ÖNLENDİ]', reason));
+
+server.listen(PORT, () => console.log(`Otonom AI Agent ${PORT} portunda dinlemede.`));
