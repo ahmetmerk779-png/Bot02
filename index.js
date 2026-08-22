@@ -19,6 +19,7 @@ let chatLogs = [];
 let radarEntities = [];
 let humanizerTimer = null;
 let armorTimer = null;
+let isQueueing = false;
 
 function parseChatReason(reason) {
   if (!reason) return 'Bilinmeyen sebep';
@@ -41,7 +42,7 @@ function resetPathfinder() {
 }
 
 function equipBestArmor() {
-  if (!bot || !bot.inventory) return;
+  if (!bot || !bot.inventory || isQueueing) return;
   const slots = { helmet: 'head', chestplate: 'torso', leggings: 'legs', boots: 'feet' };
   const items = bot.inventory.items();
 
@@ -293,7 +294,7 @@ app.post('/api/chat', (req, res) => {
 
 app.post('/api/action', (req, res) => {
   const { action } = req.body;
-  if (!bot) return res.json({ success: false, message: 'Bot aktif değil' });
+  if (!bot || isQueueing) return res.json({ success: false, message: 'Bot sırada veya aktif değil' });
 
   if (action === 'jump') {
     bot.setControlState('jump', true);
@@ -331,6 +332,7 @@ function cleanBotState() {
 async function initBot() {
   cleanBotState();
   botStatus = "Bağlanıyor...";
+  isQueueing = false;
   chatLogs.push(`[SİSTEM] ${config.host} sunucusuna bağlanılıyor...`);
 
   let targetVersion = false;
@@ -343,8 +345,8 @@ async function initBot() {
     username: config.username,
     version: targetVersion,
     hideErrors: true,
-    viewDistance: 'tiny', // Velocity aktarımındaki paket yoğunluğunu düşürür
-    checkTimeoutInterval: 90 * 1000
+    viewDistance: 'tiny',
+    checkTimeoutInterval: 120 * 1000
   });
 
   bot.loadPlugin(pathfinder);
@@ -362,9 +364,11 @@ async function initBot() {
 
   bot.on('spawn', () => {
     botStatus = "Çalışıyor";
-    chatLogs.push(`[SİSTEM] Bot oyunda aktif!`);
+    chatLogs.push(`[SİSTEM] Bot oyuna bağlandı! Sıra ve aktarım bekleniyor...`);
 
-    bot.physicsEnabled = true;
+    // Aktarım/Sıra esnasında kopmaması için fiziği baştan kapalı tut
+    bot.physicsEnabled = false;
+    resetPathfinder();
 
     if (bot.autoEat) {
       bot.autoEat.options = { priority: 'foodPoints', startAt: 14, bannedFood: ['rotten_flesh'] };
@@ -372,23 +376,31 @@ async function initBot() {
 
     cleanBotState();
 
-    armorTimer = setInterval(() => {
-      equipBestArmor();
-    }, 4000);
+    // Oyun tam yüklendikten 3 saniye sonra sistemleri aktifleştir
+    setTimeout(() => {
+      if (bot && !isQueueing) {
+        bot.physicsEnabled = true;
+        chatLogs.push('[SİSTEM] Hareket ve Fizik aktifleştirildi.');
 
-    humanizerTimer = setInterval(() => {
-      if (bot && bot.entity) {
-        const yaw = (Math.random() - 0.5) * 0.1;
-        const pitch = (Math.random() - 0.5) * 0.05;
-        try {
-          bot.look(bot.entity.yaw + yaw, bot.entity.pitch + pitch, true);
-        } catch(e) {}
+        armorTimer = setInterval(() => {
+          equipBestArmor();
+        }, 5000);
+
+        humanizerTimer = setInterval(() => {
+          if (bot && bot.entity && !isQueueing) {
+            const yaw = (Math.random() - 0.5) * 0.1;
+            const pitch = (Math.random() - 0.5) * 0.05;
+            try {
+              bot.look(bot.entity.yaw + yaw, bot.entity.pitch + pitch, true);
+            } catch(e) {}
+          }
+        }, 3000);
       }
-    }, 3000);
+    }, 3500);
 
     if (config.password && config.password.trim() !== '') {
       setTimeout(() => {
-        if (bot) {
+        if (bot && !isQueueing) {
           bot.chat(`/login ${config.password}`);
           chatLogs.push(`[SİSTEM] Otomatik giriş gönderildi.`);
         }
@@ -397,16 +409,28 @@ async function initBot() {
   });
 
   bot.on('respawn', () => {
+    isQueueing = true;
+    bot.physicsEnabled = false;
     resetPathfinder();
-    chatLogs.push('[SİSTEM] Lobi/Aktarım yapıldı. Pathfinder durduruldu ve fizik yenilendi.');
-    bot.physicsEnabled = true;
+    cleanBotState();
+    chatLogs.push('[SİSTEM] Sunucu/Lobi aktarımı gerçekleşiyor. Tüm paket akışı donduruldu.');
+
+    setTimeout(() => {
+      if (bot) {
+        isQueueing = false;
+        bot.physicsEnabled = true;
+        chatLogs.push('[SİSTEM] Aktarım tamamlandı. Bot hazır.');
+      }
+    }, 4000);
   });
 
-  const checkAuth = (msg) => {
+  const checkAuthAndQueue = (msg) => {
     const lower = msg.toLowerCase();
-    
-    // Aktarım uyarısı geldiği anda Pathfinder'ı dondur
-    if (lower.includes('aktarım') || lower.includes('bekleyin') || lower.includes('ışınlanıyor')) {
+
+    // AesirGuard ve Sıralama algılandığında tam dondurma
+    if (lower.includes('sıranız') || lower.includes('aesirguard') || lower.includes('aktarım') || lower.includes('bekleyin')) {
+      isQueueing = true;
+      bot.physicsEnabled = false;
       resetPathfinder();
       if (bot.clearControlStates) bot.clearControlStates();
     }
@@ -420,9 +444,9 @@ async function initBot() {
 
   bot.on('chat', async (username, message) => {
     chatLogs.push(`${username ? username + ': ' : ''}${message}`);
-    checkAuth(message);
+    checkAuthAndQueue(message);
 
-    if (username === bot.username) return;
+    if (username === bot.username || isQueueing) return;
 
     if (message.toLowerCase().includes(bot.username.toLowerCase())) {
       const aiReply = await askGroq(message, username);
@@ -435,7 +459,7 @@ async function initBot() {
 
   bot.on('messagestr', (message) => {
     chatLogs.push(message);
-    checkAuth(message);
+    checkAuthAndQueue(message);
   });
 
   bot.on('time', () => {
@@ -443,7 +467,7 @@ async function initBot() {
   });
 
   setInterval(() => {
-    if (bot && bot.entities) {
+    if (bot && bot.entities && !isQueueing) {
       const entities = Object.values(bot.entities)
         .filter(e => e !== bot.entity && (e.type === 'player' || e.type === 'mob'))
         .map(e => ({
