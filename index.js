@@ -46,6 +46,22 @@ function equipBestArmor() {
   }
 }
 
+// Anti-cheat paket denetimlerini aşmak için insanı taklit eden gecikmeli tıklama
+async function safeClickWindow(slot, mouseButton = 0, mode = 0) {
+  if (!bot || !bot.currentWindow || isTransferring) return;
+  const delay = Math.floor(Math.random() * 150) + 150;
+  
+  setTimeout(async () => {
+    try {
+      if (bot && bot.currentWindow) {
+        await bot.clickWindow(slot, mouseButton, mode);
+      }
+    } catch (err) {
+      console.log('[GUI Tıklama Hatası]:', err.message);
+    }
+  }, delay);
+}
+
 async function askGroq(userPrompt, senderName) {
   const apiKey = config.groqKey || process.env.GROQ_API_KEY;
   if (!apiKey) return null;
@@ -348,7 +364,9 @@ async function initBot() {
     username: config.username,
     version: targetVersion,
     hideErrors: true,
-    viewDistance: 'far'
+    viewDistance: 'far',
+    checkTimeoutInterval: 60 * 1000, // Lobi/BungeeCord geçişlerinde 60 saniyeye kadar timeout düşmelerini engeller
+    defaultChatPatterns: false
   });
 
   bot.loadPlugin(pathfinder);
@@ -416,7 +434,11 @@ async function initBot() {
 
   bot.on('respawn', () => {
     handleTransferLock();
-    chatLogs.push('[SİSTEM] Sunucu/Dünya değişti (Respawn).');
+    chatLogs.push('[SİSTEM] Sunucu/Dünya değişti (Respawn). Paketler senkronize ediliyor.');
+    
+    setTimeout(() => {
+      isTransferring = false;
+    }, 2500);
   });
 
   const checkTransferAndAuth = (msg) => {
