@@ -2,6 +2,8 @@ const express = require('express');
 const http = require('http');
 const mineflayer = require('mineflayer');
 const { pathfinder } = require('mineflayer-pathfinder');
+const autoArmor = require('mineflayer-auto-armor');
+const Groq = require('groq-sdk');
 
 const app = express();
 const server = http.createServer(app);
@@ -17,22 +19,49 @@ let tps = "-";
 let chatLogs = [];
 let radarEntities = [];
 let isTransferring = false;
+let humanizerTimer = null;
 
-// Atılma/Kick Mesajını NBT Objesinden Temiz Metne Çevirici
 function parseChatReason(reason) {
   if (!reason) return 'Bilinmeyen sebep';
   if (typeof reason === 'string') return reason;
   try {
     const jsonStr = JSON.stringify(reason);
     const textMatch = jsonStr.match(/"text":"([^"]+)"/);
-    if (textMatch && textMatch[1]) {
-      return textMatch[1];
-    }
+    if (textMatch && textMatch[1]) return textMatch[1];
   } catch (e) {}
   return typeof reason === 'object' ? JSON.stringify(reason) : String(reason);
 }
 
-// Express Rotaları / Control API
+async function askGroq(userPrompt, senderName) {
+  const apiKey = config.groqKey || process.env.GROQ_API_KEY;
+  if (!apiKey) return null;
+
+  try {
+    const groq = new Groq({ apiKey });
+    const completion = await groq.chat.completions.create({
+      messages: [
+        {
+          role: 'system',
+          content: 'Sen Minecraft oyununda bir oyuncusun. Türkçe, samimi, komik ve çok kısa (en fazla 1-2 cümle) yanıtlar ver. Asla uzun paragraflar yazma.'
+        },
+        {
+          role: 'user',
+          content: `${senderName} sana şöyle dedi: "${userPrompt}"`
+        }
+      ],
+      model: 'llama-3.1-8b-instant',
+      max_tokens: 100
+    });
+
+    if (completion.choices && completion.choices[0] && completion.choices[0].message) {
+      return completion.choices[0].message.content.trim().replace(/\n/g, ' ');
+    }
+  } catch (err) {
+    console.error('[GROQ HATA]', err.message);
+  }
+  return null;
+}
+
 app.get('/api/status', (req, res) => {
   res.json({
     status: botStatus,
@@ -43,7 +72,6 @@ app.get('/api/status', (req, res) => {
   });
 });
 
-// Front-end Single Page App Serve
 app.get('/', (req, res) => {
   res.send(`
 <!DOCTYPE html>
@@ -83,7 +111,7 @@ app.get('/', (req, res) => {
     <h1>Bot Kontrol Paneli</h1>
     
     <div class="input-group">
-      <input type="text" id="geminiKey" placeholder="Gemini API (Boşsa Render Env Kullanır)">
+      <input type="text" id="groqKey" placeholder="Groq API Key (gsk_...) (Boşsa Env)">
     </div>
     <div class="input-group">
       <input type="text" id="host" placeholder="Sunucu IP" value="play.aesirmc.com">
@@ -95,7 +123,7 @@ app.get('/', (req, res) => {
       <input type="password" id="password" placeholder="Sunucu Şifresi (/login)">
     </div>
     <div class="input-group">
-      <input type="text" id="version" placeholder="Minecraft Sürümü (Örn: 1.21.11 - Boşsa Otomatik)" value="1.21.11">
+      <input type="text" id="version" placeholder="Minecraft Sürümü (Örn: 1.21.11)" value="1.21.11">
     </div>
 
     <div class="btn-group">
@@ -144,7 +172,7 @@ app.get('/', (req, res) => {
         username: document.getElementById('username').value,
         password: document.getElementById('password').value,
         version: document.getElementById('version').value,
-        geminiKey: document.getElementById('geminiKey').value
+        groqKey: document.getElementById('groqKey').value
       };
       await fetch('/api/start', {
         method: 'POST',
@@ -205,7 +233,6 @@ app.get('/', (req, res) => {
   `);
 });
 
-// Bot Başlatma / Durdurma API Endpoints
 let config = {};
 
 app.post('/api/start', (req, res) => {
@@ -223,6 +250,7 @@ app.post('/api/start', (req, res) => {
 });
 
 app.post('/api/stop', (req, res) => {
+  cleanBotState();
   if (bot) {
     bot.quit();
     bot = null;
@@ -266,7 +294,13 @@ app.post('/api/action', (req, res) => {
   res.json({ success: true });
 });
 
-// Aktarım Durumunda Botu Dondurma Fonksiyonu
+function cleanBotState() {
+  if (humanizerTimer) {
+    clearInterval(humanizerTimer);
+    humanizerTimer = null;
+  }
+}
+
 function handleTransferLock() {
   isTransferring = true;
   if (bot) {
@@ -280,8 +314,8 @@ function handleTransferLock() {
   }, 4000);
 }
 
-// Bot Oluşturma Fonksiyonu
 async function initBot() {
+  cleanBotState();
   botStatus = "Bağlanıyor...";
   isTransferring = false;
   chatLogs.push(`[SİSTEM] ${config.host} sunucusuna bağlanılıyor...`);
@@ -295,18 +329,34 @@ async function initBot() {
     host: config.host,
     username: config.username,
     version: targetVersion,
-    hideErrors: true
+    hideErrors: true,
+    viewDistance: 'far'
   });
 
   bot.loadPlugin(pathfinder);
+  bot.loadPlugin(autoArmor);
 
   try {
     const autoEatModule = await import('mineflayer-auto-eat');
     const autoEat = autoEatModule.plugin || autoEatModule.default;
     if (autoEat) bot.loadPlugin(autoEat);
-  } catch(e) {
-    console.log('[SİSTEM] AutoEat yüklenemedi:', e.message);
-  }
+  } catch(e) {}
+
+  bot.once('login', () => {
+    try {
+      if (bot._client) {
+        bot._client.write('custom_payload', {
+          channel: 'minecraft:brand',
+          data: Buffer.from('\x07vanilla')
+        });
+      }
+    } catch (e) {}
+  });
+
+  bot.on('resourcePack', () => {
+    chatLogs.push('[SİSTEM] Sunucu Kaynak Paketi otomatik reddedildi.');
+    if (bot.denyResourcePack) bot.denyResourcePack();
+  });
 
   bot.on('spawn', () => {
     botStatus = "Çalışıyor";
@@ -316,17 +366,31 @@ async function initBot() {
       bot.autoEat.options = { priority: 'foodPoints', startAt: 14, bannedFood: ['rotten_flesh'] };
     }
 
+    if (bot.autoArmor) {
+      bot.autoArmor.equip();
+    }
+
     if (bot.pathfinder) {
       bot.pathfinder.thinkTimeout = 1000;
       bot.pathfinder.tickTimeout = 20;
     }
 
-    // OTOMATİK GİRİŞ (3 Saniye Gecikmeli)
+    cleanBotState();
+    humanizerTimer = setInterval(() => {
+      if (bot && bot.entity && !isTransferring) {
+        const yaw = (Math.random() - 0.5) * 0.2;
+        const pitch = (Math.random() - 0.5) * 0.1;
+        try {
+          bot.look(bot.entity.yaw + yaw, bot.entity.pitch + pitch, true);
+        } catch(e) {}
+      }
+    }, 2500);
+
     if (config.password && config.password.trim() !== '') {
       setTimeout(() => {
         if (bot && !isTransferring) {
           bot.chat(`/login ${config.password}`);
-          chatLogs.push(`[SİSTEM] Otomatik giriş (/login) 3 saniye sonra gönderildi.`);
+          chatLogs.push(`[SİSTEM] Otomatik giriş (/login) gönderildi.`);
         }
       }, 3000);
     }
@@ -337,23 +401,42 @@ async function initBot() {
     chatLogs.push('[SİSTEM] Sunucu/Dünya değişti (Respawn).');
   });
 
-  // Chat & Aktarım Dinleyicisi
-  const checkTransfer = (msg) => {
-    const transferKeywords = ['Aktarım', 'bekleyin', 'teleport', 'Işınlanıyor', 'Aktarılıyorsunuz', 'Sıranız:'];
-    if (transferKeywords.some(kw => msg.includes(kw))) {
+  const checkTransferAndAuth = (msg) => {
+    const lower = msg.toLowerCase();
+    
+    if ((lower.includes('/login') || lower.includes('şifre') || lower.includes('girin')) && config.password) {
+      setTimeout(() => {
+        if (bot && !isTransferring) {
+          bot.chat(`/login ${config.password}`);
+        }
+      }, 1000);
+    }
+
+    const transferKeywords = ['aktarım', 'bekleyin', 'teleport', 'ışınlanıyor', 'aktarılıyorsunuz', 'sıranız:'];
+    if (transferKeywords.some(kw => lower.includes(kw))) {
       handleTransferLock();
-      chatLogs.push('[SİSTEM] Aktarım algılandı. Tüm hareketler ve paketler donduruldu.');
+      chatLogs.push('[SİSTEM] Aktarım algılandı. Hareketler donduruldu.');
     }
   };
 
-  bot.on('chat', (username, message) => {
+  bot.on('chat', async (username, message) => {
     chatLogs.push(`${username ? username + ': ' : ''}${message}`);
-    checkTransfer(message);
+    checkTransferAndAuth(message);
+
+    if (username === bot.username || isTransferring) return;
+
+    if (message.toLowerCase().includes(bot.username.toLowerCase())) {
+      const aiReply = await askGroq(message, username);
+      if (aiReply && bot) {
+        bot.chat(aiReply);
+        chatLogs.push(`[AI YANIT]: ${aiReply}`);
+      }
+    }
   });
 
   bot.on('messagestr', (message) => {
     chatLogs.push(message);
-    checkTransfer(message);
+    checkTransferAndAuth(message);
   });
 
   bot.on('forcedMove', () => {
@@ -384,6 +467,7 @@ async function initBot() {
   }, 2000);
 
   bot.on('kicked', (reason) => {
+    cleanBotState();
     botStatus = "Atıldı (Kicked)";
     const parsed = parseChatReason(reason);
     chatLogs.push(`[SİSTEM] Bot sunucudan atıldı: ${parsed}`);
@@ -391,6 +475,7 @@ async function initBot() {
   });
 
   bot.on('end', () => {
+    cleanBotState();
     botStatus = "Kapalı";
     chatLogs.push(`[SİSTEM] Bot sunucudan ayrıldı.`);
     bot = null;
