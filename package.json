@@ -1,21 +1,19 @@
 {
-  "name": "minecraft-gemini-ai-bot",
+  "name": "minecraft-bot-panel",
   "version": "1.0.0",
-  "description": "Minecraft Mineflayer Bot powered by Gemini AI and Express Dashboard",
+  "description": "Mineflayer Bot Web Paneli, Groq AI, Auto Armor ve Minecraft Data Entegrasyonu",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
-    "@google/generative-ai": "latest",
-    "express": "latest",
-    "minecraft-data": "latest",
-    "mineflayer": "latest",
-    "mineflayer-armor-manager": "latest",
-    "mineflayer-auto-eat": "latest",
-    "mineflayer-pathfinder": "latest",
-    "mineflayer-pvp": "latest",
-    "mineflayer-tps": "latest"
+    "express": "^4.19.2",
+    "groq-sdk": "^0.7.0",
+    "minecraft-data": "^3.71.0",
+    "mineflayer": "^4.20.1",
+    "mineflayer-auto-armor": "^2.1.0",
+    "mineflayer-auto-eat": "^3.3.0",
+    "mineflayer-pathfinder": "^2.4.5"
   },
   "engines": {
     "node": ">=18.0.0"
