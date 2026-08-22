@@ -5,7 +5,6 @@ const { pathfinder, goals, Movements } = require('mineflayer-pathfinder');
 const { plugin: pvp } = require('mineflayer-pvp');
 const { plugin: collectBlock } = require('mineflayer-collectblock');
 const Groq = require('groq-sdk');
-const vec3 = require('vec3');
 
 const app = express();
 const server = http.createServer(app);
@@ -29,37 +28,28 @@ let mcData = null;
 let isFishing = false;
 let config = {};
 
-// --- GROQ AI TOOLS ---
 const botTools = [
   {
     type: "function",
     function: {
       name: "follow_player",
       description: "Belirtilen oyuncunun yanına gider ve onu takip eder.",
-      parameters: {
-        type: "object",
-        properties: { target: { type: "string", description: "Takip edilecek oyuncu" } },
-        required: ["target"]
-      }
+      parameters: { type: "object", properties: { target: { type: "string" } }, required: ["target"] }
     }
   },
   {
     type: "function",
     function: {
       name: "attack_target",
-      description: "Belirtilen oyuncuya veya yaratığa saldırmak için PvP başlatır.",
-      parameters: {
-        type: "object",
-        properties: { target: { type: "string", description: "Saldırılacak hedef" } },
-        required: ["target"]
-      }
+      description: "Belirtilen hedefe PvP başlatır.",
+      parameters: { type: "object", properties: { target: { type: "string" } }, required: ["target"] }
     }
   },
   {
     type: "function",
     function: {
       name: "stop_all_actions",
-      description: "Tüm eylemleri (takip, pvp, kazma, balık) durdurur.",
+      description: "Tüm eylemleri durdurur.",
       parameters: { type: "object", properties: {} }
     }
   },
@@ -67,12 +57,8 @@ const botTools = [
     type: "function",
     function: {
       name: "mine_block",
-      description: "Etraftaki belirli bir blok türünü kazar ve toplar.",
-      parameters: {
-        type: "object",
-        properties: { blockName: { type: "string", description: "Kazılacak blok adı" } },
-        required: ["blockName"]
-      }
+      description: "Etraftaki belirli bir bloğu kazar.",
+      parameters: { type: "object", properties: { blockName: { type: "string" } }, required: ["blockName"] }
     }
   },
   {
@@ -87,15 +73,17 @@ const botTools = [
     type: "function",
     function: {
       name: "say_chat",
-      description: "Sadece sohbetten yanıt verir.",
-      parameters: {
-        type: "object",
-        properties: { message: { type: "string", description: "Sohbet mesajı" } },
-        required: ["message"]
-      }
+      description: "Sohbetten yanıt verir.",
+      parameters: { type: "object", properties: { message: { type: "string" } }, required: ["message"] }
     }
   }
 ];
+
+function setPhysicsState(enabled) {
+  if (!bot) return;
+  if (bot.physics) bot.physics.enabled = enabled;
+  bot.physicsEnabled = enabled;
+}
 
 function resetAllStates() {
   isFishing = false;
@@ -183,7 +171,7 @@ async function processAIAgent(sender, userMessage) {
       messages: [
         {
           role: "system",
-          content: `Sen Minecraft'ta otonom bir AI oyuncususun. Durumun: ${JSON.stringify(botState)}. Mesajlara göre doğru aracı (tool) seç. Sadece mesaj vereceksen say_chat kullan.`
+          content: `Sen Minecraft'ta otonom bir AI oyuncususun. Durumun: ${JSON.stringify(botState)}. Mesajlara göre doğru aracı seç. Sadece mesaj vereceksen say_chat kullan.`
         },
         { role: "user", content: `${sender}: "${userMessage}"` }
       ],
@@ -263,7 +251,7 @@ async function initBot() {
     username: config.username,
     version: config.version ? config.version.trim() : "1.21.11",
     hideErrors: true,
-    viewDistance: 8,
+    viewDistance: 4,
     checkTimeoutInterval: 120 * 1000
   });
 
@@ -278,7 +266,7 @@ async function initBot() {
   } catch(e) {}
 
   bot.on('spawn', () => {
-    botStatus = "Çalışıyor";
+    botStatus = "Doğdu (Aktarım Bekleniyor)";
     chatLogs.push(`[SİSTEM] Bot dünyaya doğdu.`);
     resetAllStates();
     mcData = require('minecraft-data')(bot.version);
@@ -287,38 +275,41 @@ async function initBot() {
       bot.autoEat.options = { priority: 'foodPoints', startAt: 14, bannedFood: ['rotten_flesh'] };
     }
 
-    // İlk girişte login gönderimi
     if (config.password && config.password.trim() !== '' && !isLoggedIn) {
       setTimeout(() => { 
-        if (bot && !isQueueing) {
-          bot.chat(`/login ${config.password}`);
-        }
+        if (bot && !isQueueing) bot.chat(`/login ${config.password}`);
       }, 2000);
     }
 
-    // Ekstra koruma: Aktarım bittikten sonra zamanlayıcıları aç
+    // Doğduktan 3 saniye sonra fiziği güvenle aç
+    setTimeout(() => {
+      if (bot) {
+        setPhysicsState(true);
+        isQueueing = false;
+        botStatus = "Çalışıyor";
+        chatLogs.push('[SİSTEM] Fizik ve paket aktarımı aktif edildi.');
+      }
+    }, 3000);
+
     if (armorTimer) clearInterval(armorTimer);
     armorTimer = setInterval(() => {
       if (!isQueueing && bot) equipBestArmor();
     }, 8000);
   });
 
-  // Sunucu Geçişi (Sıradan Çıkış / ASMP'ye Giriş Tamponu)
+  // Sunucu geçiş paketinde (Lobi -> ASMP) fiziği anında kapat
   bot.on('respawn', () => {
     isQueueing = true;
+    setPhysicsState(false);
     resetAllStates();
-    chatLogs.push('[SİSTEM] Sunucu aktarımı yapılıyor, paket gönderimi donduruldu...');
-    
-    setTimeout(() => {
-      isQueueing = false;
-      botStatus = "Çalışıyor";
-      chatLogs.push('[SİSTEM] Aktarım tamamlandı. Bot hazır.');
-    }, 5000);
+    botStatus = "Sunucu Değiştiriliyor...";
+    chatLogs.push('[SİSTEM] Alt sunucuya aktarılıyor, paket gönderimi donduruldu.');
   });
 
   const checkQueueMessage = (msg) => {
     if (msg.includes('Sıranız:') || msg.includes('sırasına girdiniz') || msg.includes('aktarılıyorsunuz') || msg.includes('AesirGuard')) {
       isQueueing = true;
+      setPhysicsState(false);
       resetAllStates();
       botStatus = "Sırada Bekliyor";
       return true;
