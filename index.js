@@ -22,7 +22,9 @@ let chatLogs = [];
 let radarEntities = [];
 let humanizerTimer = null;
 let armorTimer = null;
+let autoReconnectTimer = null;
 let isQueueing = false;
+let isManualStop = false;
 let mcData = null;
 let isFishing = false;
 let config = {};
@@ -68,7 +70,7 @@ const botTools = [
       description: "Etraftaki belirli bir blok türünü kazar ve toplar.",
       parameters: {
         type: "object",
-        properties: { blockName: { type: "string", description: "Kazılacak blok adı (ör: iron_ore, stone)" } },
+        properties: { blockName: { type: "string", description: "Kazılacak blok adı" } },
         required: ["blockName"]
       }
     }
@@ -79,25 +81,6 @@ const botTools = [
       name: "start_fishing",
       description: "Otonom balık tutmaya başlar.",
       parameters: { type: "object", properties: {} }
-    }
-  },
-  {
-    type: "function",
-    function: {
-      name: "farm_crops",
-      description: "Olgunlaşmış mahsülleri toplar ve eker.",
-      parameters: { type: "object", properties: {} }
-    }
-  },
-  {
-    type: "function",
-    function: {
-      name: "drop_inventory",
-      description: "Envanterdeki eşyaları yere atar.",
-      parameters: {
-        type: "object",
-        properties: { itemName: { type: "string", description: "Atılacak eşya ismi" } }
-      }
     }
   },
   {
@@ -114,7 +97,6 @@ const botTools = [
   }
 ];
 
-// --- BOT FONKSİYONLARI ---
 function resetAllStates() {
   isFishing = false;
   if (bot) {
@@ -124,6 +106,7 @@ function resetAllStates() {
 }
 
 function followPlayer(username) {
+  if (isQueueing) return;
   resetAllStates();
   const target = bot.players[username]?.entity;
   if (!target) return bot.chat(`${username} yakında bulunamadı.`);
@@ -135,6 +118,7 @@ function followPlayer(username) {
 }
 
 function attackTarget(targetName) {
+  if (isQueueing) return;
   resetAllStates();
   let target = bot.players[targetName]?.entity || bot.nearestEntity(e => (e.type === 'mob' || e.type === 'player') && e.username === targetName);
   if (!target) return bot.chat(`${targetName} hedefi bulunamadı.`);
@@ -143,6 +127,7 @@ function attackTarget(targetName) {
 }
 
 async function mineBlock(blockName) {
+  if (isQueueing) return;
   resetAllStates();
   if (!mcData || !mcData.blocksByName[blockName]) return bot.chat(`Geçersiz blok: ${blockName}`);
   const target = bot.findBlock({ matching: mcData.blocksByName[blockName].id, maxDistance: 25 });
@@ -155,6 +140,7 @@ async function mineBlock(blockName) {
 }
 
 async function startFishing() {
+  if (isQueueing) return;
   resetAllStates();
   isFishing = true;
   const rod = bot.inventory.items().find(i => i.name.includes('fishing_rod'));
@@ -167,7 +153,7 @@ async function startFishing() {
 }
 
 async function loopFishing() {
-  if (!isFishing || !bot) return;
+  if (!isFishing || !bot || isQueueing) return;
   try {
     await bot.fish();
     bot.chat('Balık tutuldu! Tekrar atılıyor.');
@@ -175,36 +161,6 @@ async function loopFishing() {
   } catch (err) {
     if (isFishing) setTimeout(() => loopFishing(), 3000);
   }
-}
-
-async function farmCrops() {
-  resetAllStates();
-  if (!mcData) return;
-  const crop = bot.findBlock({
-    matching: (b) => b.type === mcData.blocksByName['wheat']?.id && b.metadata === 7,
-    maxDistance: 15
-  });
-  if (!crop) return bot.chat('Olgun mahsül yok.');
-  try {
-    await bot.pathfinder.goto(new goals.GoalBlock(crop.position.x, crop.position.y, crop.position.z));
-    await bot.dig(crop);
-    const seed = bot.inventory.items().find(i => i.name.includes('seed'));
-    if (seed) {
-      await bot.equip(seed, 'hand');
-      await bot.placeBlock(bot.blockAt(crop.position.down(1)), new vec3(0, 1, 0));
-    }
-    bot.chat('Mahsül toplandı ve ekildi.');
-  } catch (err) {}
-}
-
-async function dropInventory(itemName) {
-  const items = bot.inventory.items();
-  for (const item of items) {
-    if (!itemName || item.name.includes(itemName)) {
-      try { await bot.tossStack(item); } catch (e) {}
-    }
-  }
-  bot.chat('Eşyalar bırakıldı.');
 }
 
 async function processAIAgent(sender, userMessage) {
@@ -245,8 +201,6 @@ async function processAIAgent(sender, userMessage) {
         else if (fnName === 'stop_all_actions') { resetAllStates(); bot.chat('Durdum.'); }
         else if (fnName === 'mine_block') mineBlock(args.blockName);
         else if (fnName === 'start_fishing') startFishing();
-        else if (fnName === 'farm_crops') farmCrops();
-        else if (fnName === 'drop_inventory') dropInventory(args.itemName);
         else if (fnName === 'say_chat' && args.message) bot.chat(args.message);
       }
     } else if (choice.content) {
@@ -272,10 +226,19 @@ function equipBestArmor() {
   }
 }
 
+function triggerAutoReconnect() {
+  if (isManualStop || autoReconnectTimer) return;
+  botStatus = "Yeniden Bağlanıyor (5s)...";
+  chatLogs.push('[SİSTEM] Bağlantı koptu. 5 saniye içinde yeniden bağlanılıyor...');
+  autoReconnectTimer = setTimeout(() => {
+    autoReconnectTimer = null;
+    if (!isManualStop) initBot();
+  }, 5000);
+}
+
 async function initBot() {
   cleanBotState();
   botStatus = "Bağlanıyor...";
-  isQueueing = false;
 
   bot = mineflayer.createBot({
     host: config.host,
@@ -298,8 +261,9 @@ async function initBot() {
 
   bot.on('spawn', () => {
     botStatus = "Çalışıyor";
-    chatLogs.push(`[SİSTEM] Bot bağlandı.`);
-    bot.physicsEnabled = false;
+    isQueueing = false;
+    chatLogs.push(`[SİSTEM] Bot sunucuya girdi/aktarıldı.`);
+    bot.physicsEnabled = true;
     resetAllStates();
     mcData = require('minecraft-data')(bot.version);
 
@@ -307,27 +271,45 @@ async function initBot() {
       bot.autoEat.options = { priority: 'foodPoints', startAt: 14, bannedFood: ['rotten_flesh'] };
     }
 
-    cleanBotState();
-    setTimeout(() => {
-      if (bot && !isQueueing) {
-        bot.physicsEnabled = true;
-        chatLogs.push('[SİSTEM] Bot otonom AI Agent olarak aktif!');
-        armorTimer = setInterval(() => equipBestArmor(), 5000);
-      }
-    }, 4000);
-
     if (config.password && config.password.trim() !== '') {
-      setTimeout(() => { if (bot && !isQueueing) bot.chat(`/login ${config.password}`); }, 2000);
+      setTimeout(() => { if (bot && !isQueueing) bot.chat(`/login ${config.password}`); }, 1500);
     }
+
+    if (!armorTimer) armorTimer = setInterval(() => equipBestArmor(), 5000);
+  });
+
+  // Sunucu değiştirdiğinde (Lobi -> ASMP) botun çökmesini önler
+  bot.on('respawn', () => {
+    chatLogs.push('[SİSTEM] Sunucu/Dünya değişti (ASMP Aktarımı). Bot güncelleniyor...');
+    resetAllStates();
+    isQueueing = false;
   });
 
   bot.on('chat', async (username, message) => {
     chatLogs.push(`${username ? username + ': ' : ''}${message}`);
+
+    // Sıra veya aktarım tespiti
+    if (message.includes('sırasına girdiniz') || message.includes('Sıranız:') || message.includes('aktarılıyorsunuz')) {
+      isQueueing = true;
+      resetAllStates();
+      bot.physicsEnabled = false; // Sıradayken paketi dondur
+      botStatus = "Sırada Bekliyor";
+      return;
+    }
+
     if (username === bot.username || isQueueing) return;
     await processAIAgent(username, message);
   });
 
-  bot.on('messagestr', (msg) => chatLogs.push(msg));
+  bot.on('messagestr', (msg) => {
+    chatLogs.push(msg);
+    if (msg.includes('sırasına girdiniz') || msg.includes('Sıranız:')) {
+      isQueueing = true;
+      bot.physicsEnabled = false;
+      botStatus = "Sırada Bekliyor";
+    }
+  });
+
   bot.on('time', () => { if (bot) ping = bot.player ? bot.player.ping : '-'; });
 
   setInterval(() => {
@@ -345,8 +327,18 @@ async function initBot() {
     } else { radarEntities = []; }
   }, 2000);
 
-  bot.on('kicked', (reason) => { cleanBotState(); botStatus = "Atıldı"; bot = null; });
-  bot.on('end', () => { cleanBotState(); botStatus = "Kapalı"; bot = null; });
+  bot.on('kicked', (reason) => {
+    chatLogs.push(`[SİSTEM] Atıldı: ${reason}`);
+    cleanBotState();
+    triggerAutoReconnect();
+  });
+
+  bot.on('end', () => {
+    cleanBotState();
+    if (!isManualStop) triggerAutoReconnect();
+    else botStatus = "Kapalı";
+  });
+
   bot.on('error', (err) => chatLogs.push(`[HATA] ${err.message}`));
 }
 
@@ -358,14 +350,19 @@ app.get('/api/status', (req, res) => {
 app.post('/api/start', (req, res) => {
   config = req.body;
   if (!config.host || !config.username) return res.status(400).json({ error: 'Bilgiler eksik!' });
+  isManualStop = false;
+  if (autoReconnectTimer) clearTimeout(autoReconnectTimer);
   if (bot) { try { bot.quit(); } catch(e){} }
   initBot();
   res.json({ success: true });
 });
 
 app.post('/api/stop', (req, res) => {
+  isManualStop = true;
+  if (autoReconnectTimer) clearTimeout(autoReconnectTimer);
   cleanBotState();
-  if (bot) { bot.quit(); bot = null; botStatus = "Kapalı"; }
+  if (bot) { bot.quit(); bot = null; }
+  botStatus = "Kapalı";
   res.json({ success: true });
 });
 
