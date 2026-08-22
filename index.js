@@ -236,22 +236,14 @@ function triggerAutoReconnect() {
   }, 5000);
 }
 
-// NBT ve JSON Atılma Mesajlarını Düz Metne Çevirir
 function parseKickReason(reason) {
   if (!reason) return "Bilinmeyen Neden";
   if (typeof reason === 'string') return reason;
-  
   if (typeof reason === 'object') {
-    // Prismarine NBT Objesi
     if (reason.type === 'compound' && reason.value) {
-      if (reason.value.text && reason.value.text.value) {
-        return reason.value.text.value;
-      }
-      if (reason.value.extra && reason.value.extra.value) {
-        return JSON.stringify(reason.value.extra.value);
-      }
+      if (reason.value.text && reason.value.text.value) return reason.value.text.value;
+      if (reason.value.extra && reason.value.extra.value) return JSON.stringify(reason.value.extra.value);
     }
-    // Standart JSON Chat
     if (reason.text) return reason.text;
     if (reason.extra && Array.isArray(reason.extra)) {
       return reason.extra.map(e => (typeof e === 'string' ? e : e.text || '')).join('');
@@ -271,7 +263,7 @@ async function initBot() {
     username: config.username,
     version: config.version ? config.version.trim() : "1.21.11",
     hideErrors: true,
-    viewDistance: 'far',
+    viewDistance: 8,
     checkTimeoutInterval: 120 * 1000
   });
 
@@ -287,9 +279,7 @@ async function initBot() {
 
   bot.on('spawn', () => {
     botStatus = "Çalışıyor";
-    isQueueing = false;
     chatLogs.push(`[SİSTEM] Bot dünyaya doğdu.`);
-    
     resetAllStates();
     mcData = require('minecraft-data')(bot.version);
 
@@ -297,23 +287,44 @@ async function initBot() {
       bot.autoEat.options = { priority: 'foodPoints', startAt: 14, bannedFood: ['rotten_flesh'] };
     }
 
-    // Giriş yapma kontrolü
+    // İlk girişte login gönderimi
     if (config.password && config.password.trim() !== '' && !isLoggedIn) {
       setTimeout(() => { 
-        if (bot) {
+        if (bot && !isQueueing) {
           bot.chat(`/login ${config.password}`);
         }
       }, 2000);
     }
 
-    if (!armorTimer) armorTimer = setInterval(() => equipBestArmor(), 7000);
+    // Ekstra koruma: Aktarım bittikten sonra zamanlayıcıları aç
+    if (armorTimer) clearInterval(armorTimer);
+    armorTimer = setInterval(() => {
+      if (!isQueueing && bot) equipBestArmor();
+    }, 8000);
   });
 
+  // Sunucu Geçişi (Sıradan Çıkış / ASMP'ye Giriş Tamponu)
   bot.on('respawn', () => {
-    chatLogs.push('[SİSTEM] Alt sunucuya aktarıldı.');
+    isQueueing = true;
     resetAllStates();
-    isQueueing = false;
+    chatLogs.push('[SİSTEM] Sunucu aktarımı yapılıyor, paket gönderimi donduruldu...');
+    
+    setTimeout(() => {
+      isQueueing = false;
+      botStatus = "Çalışıyor";
+      chatLogs.push('[SİSTEM] Aktarım tamamlandı. Bot hazır.');
+    }, 5000);
   });
+
+  const checkQueueMessage = (msg) => {
+    if (msg.includes('Sıranız:') || msg.includes('sırasına girdiniz') || msg.includes('aktarılıyorsunuz') || msg.includes('AesirGuard')) {
+      isQueueing = true;
+      resetAllStates();
+      botStatus = "Sırada Bekliyor";
+      return true;
+    }
+    return false;
+  };
 
   bot.on('chat', async (username, message) => {
     chatLogs.push(`${username ? username + ': ' : ''}${message}`);
@@ -322,14 +333,9 @@ async function initBot() {
       isLoggedIn = true;
     }
 
-    if (message.includes('sırasına girdiniz') || message.includes('Sıranız:') || message.includes('aktarılıyorsunuz')) {
-      isQueueing = true;
-      resetAllStates();
-      botStatus = "Sırada Bekliyor";
-      return;
-    }
-
+    if (checkQueueMessage(message)) return;
     if (username === bot.username || isQueueing) return;
+    
     await processAIAgent(username, message);
   });
 
@@ -338,11 +344,7 @@ async function initBot() {
     if (msg.includes('Giriş başarılı') || msg.includes('Login successfull') || msg.includes('Başarıyla giriş yaptınız')) {
       isLoggedIn = true;
     }
-    if (msg.includes('sırasına girdiniz') || msg.includes('Sıranız:')) {
-      isQueueing = true;
-      resetAllStates();
-      botStatus = "Sırada Bekliyor";
-    }
+    checkQueueMessage(msg);
   });
 
   bot.on('time', () => { if (bot) ping = bot.player ? bot.player.ping : '-'; });
