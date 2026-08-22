@@ -100,6 +100,7 @@ const botTools = [
 function resetAllStates() {
   isFishing = false;
   if (bot) {
+    try { bot.clearControlStates(); } catch (e) {}
     try { bot.pathfinder.setGoal(null); bot.pathfinder.stop(); } catch (e) {}
     try { bot.pvp.stop(); } catch (e) {}
   }
@@ -216,7 +217,7 @@ function cleanBotState() {
 }
 
 function equipBestArmor() {
-  if (!bot || !bot.inventory || isQueueing || !bot.physicsEnabled) return;
+  if (!bot || !bot.inventory || isQueueing) return;
   const slots = { helmet: 'head', chestplate: 'torso', leggings: 'legs', boots: 'feet' };
   for (const item of bot.inventory.items()) {
     for (const [type, slot] of Object.entries(slots)) {
@@ -235,10 +236,22 @@ function triggerAutoReconnect() {
   }, 5000);
 }
 
+// NBT ve JSON Atılma Mesajlarını Düz Metne Çevirir
 function parseKickReason(reason) {
   if (!reason) return "Bilinmeyen Neden";
   if (typeof reason === 'string') return reason;
+  
   if (typeof reason === 'object') {
+    // Prismarine NBT Objesi
+    if (reason.type === 'compound' && reason.value) {
+      if (reason.value.text && reason.value.text.value) {
+        return reason.value.text.value;
+      }
+      if (reason.value.extra && reason.value.extra.value) {
+        return JSON.stringify(reason.value.extra.value);
+      }
+    }
+    // Standart JSON Chat
     if (reason.text) return reason.text;
     if (reason.extra && Array.isArray(reason.extra)) {
       return reason.extra.map(e => (typeof e === 'string' ? e : e.text || '')).join('');
@@ -258,7 +271,7 @@ async function initBot() {
     username: config.username,
     version: config.version ? config.version.trim() : "1.21.11",
     hideErrors: true,
-    viewDistance: 'tiny',
+    viewDistance: 'far',
     checkTimeoutInterval: 120 * 1000
   });
 
@@ -277,8 +290,6 @@ async function initBot() {
     isQueueing = false;
     chatLogs.push(`[SİSTEM] Bot dünyaya doğdu.`);
     
-    // Anti-cheat kick önleme: İlk 3 saniye fizikleri kapat
-    bot.physicsEnabled = false;
     resetAllStates();
     mcData = require('minecraft-data')(bot.version);
 
@@ -286,34 +297,22 @@ async function initBot() {
       bot.autoEat.options = { priority: 'foodPoints', startAt: 14, bannedFood: ['rotten_flesh'] };
     }
 
-    // Otomatik Login (Sadece ilk girişte 1 defa)
+    // Giriş yapma kontrolü
     if (config.password && config.password.trim() !== '' && !isLoggedIn) {
       setTimeout(() => { 
         if (bot) {
           bot.chat(`/login ${config.password}`);
-          isLoggedIn = true;
         }
-      }, 1500);
+      }, 2000);
     }
 
-    // Harita tamamen yüklenince hareketi aç
-    setTimeout(() => {
-      if (bot) {
-        bot.physicsEnabled = true;
-        if (!armorTimer) armorTimer = setInterval(() => equipBestArmor(), 7000);
-      }
-    }, 3500);
+    if (!armorTimer) armorTimer = setInterval(() => equipBestArmor(), 7000);
   });
 
   bot.on('respawn', () => {
-    chatLogs.push('[SİSTEM] Sunucu aktarımı yapıldı (Lobiden Alt Sunucuya).');
-    if (bot) bot.physicsEnabled = false;
+    chatLogs.push('[SİSTEM] Alt sunucuya aktarıldı.');
     resetAllStates();
     isQueueing = false;
-    
-    setTimeout(() => {
-      if (bot) bot.physicsEnabled = true;
-    }, 3500);
   });
 
   bot.on('chat', async (username, message) => {
@@ -326,7 +325,6 @@ async function initBot() {
     if (message.includes('sırasına girdiniz') || message.includes('Sıranız:') || message.includes('aktarılıyorsunuz')) {
       isQueueing = true;
       resetAllStates();
-      if (bot) bot.physicsEnabled = false;
       botStatus = "Sırada Bekliyor";
       return;
     }
@@ -342,7 +340,7 @@ async function initBot() {
     }
     if (msg.includes('sırasına girdiniz') || msg.includes('Sıranız:')) {
       isQueueing = true;
-      if (bot) bot.physicsEnabled = false;
+      resetAllStates();
       botStatus = "Sırada Bekliyor";
     }
   });
@@ -350,7 +348,7 @@ async function initBot() {
   bot.on('time', () => { if (bot) ping = bot.player ? bot.player.ping : '-'; });
 
   setInterval(() => {
-    if (bot && bot.entities && !isQueueing && bot.physicsEnabled) {
+    if (bot && bot.entities && !isQueueing) {
       const entities = Object.values(bot.entities)
         .filter(e => e !== bot.entity && (e.type === 'player' || e.type === 'mob'))
         .map(e => ({
@@ -423,7 +421,6 @@ app.post('/api/action', (req, res) => {
     bot.setControlState('sneak', !bot.getControlState('sneak'));
   } else if (action === 'stop') {
     resetAllStates();
-    bot.clearControlStates();
   } else if (action === 'attack') {
     const target = bot.nearestEntity(e => e.type === 'mob' || e.type === 'player');
     if (target) bot.pvp.attack(target);
