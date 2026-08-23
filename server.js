@@ -1,49 +1,63 @@
 const express = require('express');
 const path = require('path');
 
-function startWebServer(bot) {
+function startWebServer(botController) {
     const app = express();
-    // Render'ın atadığı dinamik PORT veya varsayılan 3000 portu
     const PORT = process.env.PORT || 3000;
 
     app.use(express.json());
     app.use(express.static(__dirname));
 
-    // Arayüz sayfası (ui.html)
     app.get('/', (req, res) => {
         res.sendFile(path.join(__dirname, 'ui.html'));
     });
 
-    // Web paneli için canlı bot durumu (Can, Açlık, Konum)
     app.get('/api/status', (req, res) => {
-        if (!bot || !bot.entity) {
-            return res.json({ status: 'offline', message: 'Bot henüz doğmadı.' });
+        if (botController && typeof botController.getStatus === 'function') {
+            return res.json(botController.getStatus());
         }
         res.json({
-            status: 'online',
-            username: bot.username,
-            health: bot.health,
-            food: bot.food,
-            position: {
-                x: Math.round(bot.entity.position.x),
-                y: Math.round(bot.entity.position.y),
-                z: Math.round(bot.entity.position.z)
-            }
+            online: false,
+            statusText: 'Kapalı',
+            ping: '-',
+            tps: '-',
+            chatLogs: [],
+            radar: 'Yakında kimse yok.'
         });
     });
 
-    // Web panelinden oyuna mesaj gönderme uç noktası
+    app.post('/api/start', (req, res) => {
+        if (botController && botController.start) {
+            botController.start(req.body);
+        }
+        res.json({ success: true });
+    });
+
+    app.post('/api/stop', (req, res) => {
+        if (botController && botController.stop) {
+            botController.stop();
+        }
+        res.json({ success: true });
+    });
+
+    app.post('/api/command', (req, res) => {
+        const { action } = req.body;
+        if (botController && botController.handleCommand) {
+            botController.handleCommand(action);
+        }
+        res.json({ success: true });
+    });
+
     app.post('/api/chat', (req, res) => {
         const { message } = req.body;
-        if (bot && message) {
-            bot.chat(message);
-            return res.json({ success: true, message: 'Mesaj sunucuya iletildi.' });
+        if (botController && botController.sendChat) {
+            botController.sendChat(message);
         }
-        res.status(400).json({ success: false, message: 'Geçersiz istek.' });
+        res.json({ success: true });
     });
 
     app.listen(PORT, () => {
-        console.log(`[WEB] Web Kontrol Paneli ${PORT} portunda başarıyla başlatıldı.`);
+        console.log(`[PANEL] Arayüz ${PORT} portunda aktif.`);
     });
 }
 
