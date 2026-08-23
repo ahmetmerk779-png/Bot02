@@ -1,3 +1,4 @@
+
 const express = require('express');
 const path = require('path');
 const mineflayer = require('mineflayer');
@@ -79,7 +80,6 @@ function getRandomName(prefix = 'Bot') {
     return `${prefix}_${suffix}`;
 }
 
-// 🛠️ BURASI DÜZELTİLDİ
 function clearBotTimers(botObj) {
     if (botObj.moveTimer) clearInterval(botObj.moveTimer);
     if (botObj.chatTimer) clearInterval(botObj.chatTimer);
@@ -106,14 +106,14 @@ function applyDeepFreezePatch(targetBot) {
         if (targetBot.isTransitioning) {
             const blockedPackets = ['position', 'position_look', 'look', 'chat', 'arm_animation', 'entity_action', 'use_entity', 'flying', 'vehicle_move', 'client_command'];
             if (blockedPackets.includes(name)) {
-                return; // Paketi sessizce iptal et
+                return; // Paketi sessizce engelle
             }
         }
         
         try {
             originalWrite(name, params);
         } catch (err) {
-            // Soket kopma anında Node.js'e yansıyan ölümcül EPIPE hatalarını yut
+            // Soket koptuğunda EPIPE hatalarını yut
         }
     };
 }
@@ -175,14 +175,14 @@ function spawnSingleMultiBot(botObj) {
             hideErrors: true
         });
 
-        applyDeepFreezePatch(mb); // TCP Paket Korumasını Enjekte Et
+        applyDeepFreezePatch(mb);
         botObj.instance = mb;
 
         const handleAuthAction = () => {
             if (botObj.authDone || !botObj.password) return;
             botObj.authDone = true;
-            botObj.authTimer1 = setTimeout(() => { if (mb && mb.entity && !mb.isTransitioning) mb.chat(`/register ${botObj.password} ${botObj.password}`); }, 2000);
-            botObj.authTimer2 = setTimeout(() => { if (mb && mb.entity && !mb.isTransitioning) mb.chat(`/login ${botObj.password}`); }, 4500);
+            botObj.authTimer1 = setTimeout(() => { if (mb && mb.entity) mb.chat(`/register ${botObj.password} ${botObj.password}`); }, 2000);
+            botObj.authTimer2 = setTimeout(() => { if (mb && mb.entity) mb.chat(`/login ${botObj.password}`); }, 4500);
         };
 
         const releaseFreeze = () => {
@@ -190,9 +190,8 @@ function spawnSingleMultiBot(botObj) {
                 if (mb) {
                     mb.isTransitioning = false;
                     mb.physicsEnabled = true;
-                    handleAuthAction();
                 }
-            }, 4000); // 4 saniye Zemin Yüklenme Toleransı
+            }, 5000); // Ana sunucu yükleme toleransı 5 sn
         };
 
         mb.on('spawn', () => {
@@ -215,11 +214,17 @@ function spawnSingleMultiBot(botObj) {
             const cleaned = cleanText(msg).toLowerCase();
             if (!cleaned) return;
 
-            // Sıra tespiti - Botu anında DONDUR
-            if (cleaned.includes('sırasına girdiniz') || cleaned.includes('sıranız:')) {
-                botObj.status = 'Sırada Bekliyor';
-                mb.isTransitioning = true; // Paket akışını kes
-                mb.physicsEnabled = false; // Fiziği kes
+            // Sıra veya Giriş Başarılı Tespiti -> BOTU ANINDA KİLİTLE (Proxy Aktarımı)
+            if (
+                cleaned.includes('sırasına girdiniz') || 
+                cleaned.includes('sıranız:') ||
+                cleaned.includes('giriş başarılı') ||
+                cleaned.includes('login succesfull') ||
+                cleaned.includes('başarıyla giriş')
+            ) {
+                botObj.status = 'Aktarılıyor...';
+                mb.isTransitioning = true; 
+                mb.physicsEnabled = false; 
                 try { mb.clearControlStates(); } catch (e) {}
             }
 
@@ -277,15 +282,15 @@ app.post('/api/start', (req, res) => {
             hideErrors: true
         });
 
-        applyDeepFreezePatch(bot); // Tekli bot için Duvar Kırıcı TCP Yaması
+        applyDeepFreezePatch(bot);
         bot.loadPlugin(pathfinder);
         bot.loadPlugin(pvp);
 
         const executeSingleAuth = () => {
             if (authSent || !password) return;
             authSent = true;
-            setTimeout(() => { if (bot && bot.entity && !bot.isTransitioning) bot.chat(`/register ${password} ${password}`); }, 2000);
-            setTimeout(() => { if (bot && bot.entity && !bot.isTransitioning) bot.chat(`/login ${password}`); }, 4500);
+            setTimeout(() => { if (bot && bot.entity) bot.chat(`/register ${password} ${password}`); }, 2000);
+            setTimeout(() => { if (bot && bot.entity) bot.chat(`/login ${password}`); }, 4500);
         };
 
         const releaseSingleFreeze = () => {
@@ -293,9 +298,8 @@ app.post('/api/start', (req, res) => {
                 if (bot) {
                     bot.isTransitioning = false;
                     bot.physicsEnabled = true;
-                    executeSingleAuth();
                 }
-            }, 4000);
+            }, 5000);
         };
 
         bot.once('spawn', () => {
@@ -307,7 +311,7 @@ app.post('/api/start', (req, res) => {
         bot.on('respawn', () => {
             botStatus = 'Aktarıldı';
             if (bot) {
-                bot.isTransitioning = true; // Aktarım anında paketleri kes
+                bot.isTransitioning = true; 
                 bot.physicsEnabled = false;
                 try { bot.clearControlStates(); bot.pathfinder.setGoal(null); } catch (e) {}
             }
@@ -321,10 +325,17 @@ app.post('/api/start', (req, res) => {
             addChatLog(cleaned);
             const lowerCleaned = cleaned.toLowerCase();
 
-            if (lowerCleaned.includes('sırasına girdiniz') || lowerCleaned.includes('sıranız:')) {
-                botStatus = 'Sırada';
+            // Aktarım Mesajları Geldiği An Botu Kilitle
+            if (
+                lowerCleaned.includes('sırasına girdiniz') || 
+                lowerCleaned.includes('sıranız:') ||
+                lowerCleaned.includes('giriş başarılı') ||
+                lowerCleaned.includes('login succesfull') ||
+                lowerCleaned.includes('başarıyla giriş')
+            ) {
+                botStatus = 'Aktarılıyor...';
                 if (bot) {
-                    bot.isTransitioning = true; // Proxy uyanmadan paket akışını dondur
+                    bot.isTransitioning = true; 
                     bot.physicsEnabled = false;
                     try { bot.clearControlStates(); bot.pathfinder.setGoal(null); } catch (e) {}
                 }
@@ -352,7 +363,7 @@ app.post('/api/stop', (req, res) => {
 
 app.post('/api/command', (req, res) => {
     const { action } = req.body;
-    if (!bot || bot.isTransitioning) return res.json({ success: false }); // Donmuşken hareket etme
+    if (!bot || bot.isTransitioning) return res.json({ success: false }); 
     if (action === 'jump') { bot.setControlState('jump', true); setTimeout(() => { if(bot) bot.setControlState('jump', false); }, 500); }
     else if (action === 'sneak') { bot.setControlState('sneak', !bot.getControlState('sneak')); }
     else if (action === 'stop') { bot.clearControlStates(); try { bot.pathfinder.stop(); } catch (e) {} try { bot.pvp.stop(); } catch (e) {} }
@@ -372,7 +383,7 @@ app.post('/api/chat', (req, res) => {
 app.get('/api/multibot/status', (req, res) => {
     const list = multiBots.map(b => ({ username: b.username, status: b.status }));
     const connectedCount = multiBots.filter(b => b.status === 'Bağlı' || b.status === 'Sunucuya Aktarıldı').length;
-    const connectingCount = multiBots.filter(b => b.status.includes('Bağlanıyor') || b.status.includes('Sırada') || b.status.includes('Oto')).length;
+    const connectingCount = multiBots.filter(b => b.status.includes('Bağlanıyor') || b.status.includes('Sırada') || b.status.includes('Aktarılıyor') || b.status.includes('Oto')).length;
     const failedCount = multiBots.filter(b => b.status.includes('Atıldı') || b.status.includes('Hata') || b.status.includes('Eksik')).length;
     res.json({ bots: list, logs: systemLogs, stats: { connected: connectedCount, connecting: connectingCount, failed: failedCount, total: multiBots.length } });
 });
