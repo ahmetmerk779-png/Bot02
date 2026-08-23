@@ -6,7 +6,6 @@ const { processAI } = require('./ai');
 
 let bot = null;
 let isLoggedIn = false;
-let transferTimeout = null; 
 let reconnectTimeout = null;
 let state = {
   status: "Kapalı", ping: "-", tps: "-",
@@ -25,50 +24,13 @@ function parseKickReason(reason) {
   try {
     if (typeof reason === 'string') {
       const parsed = JSON.parse(reason);
-      if (parsed.text) return parsed.text;
-      if (parsed.extra) return parsed.extra.map(e => e.text || '').join('');
-      return reason;
+      return parsed.text || parsed.extra?.map(e => e.text).join('') || reason;
     }
     if (typeof reason === 'object') {
-      if (reason.type === 'compound' && reason.value && reason.value.text && reason.value.text.value) {
-        return reason.value.text.value;
-      }
-      if (reason.text) return reason.text;
-      if (reason.extra) return reason.extra.map(e => e.text || '').join('');
-      return JSON.stringify(reason);
+      return reason.text || reason.extra?.map(e => e.text).join('') || JSON.stringify(reason);
     }
-  } catch (e) {
-    return typeof reason === 'object' ? JSON.stringify(reason) : String(reason);
-  }
+  } catch (e) {}
   return String(reason);
-}
-
-// 🚀 VELOCITY BYPASS SİSTEMİ: Fizik motoru kökten kapatılıyor!
-function lockBotForTransfer(isLongQueue = false) {
-  state.isQueueing = true;
-  state.status = isLongQueue ? "Sırada / Yapılandırmada..." : "Aktarım Bekleniyor...";
-  
-  if (bot) {
-    // DİKKAT: clearControlStates SİLİNDİ (Çünkü o bile paket yolluyordu!)
-    // BOTUN YER BİLDİRİMİNİ KES:
-    bot.physicsEnabled = false;
-    if (bot.physics) bot.physics.enabled = false;
-    
-    try { bot.pathfinder.setGoal(null); } catch(e){}
-  }
-  
-  if (transferTimeout) clearTimeout(transferTimeout);
-  
-  // Asmp sıraları uzun sürebilir, timeout süresini uzattık (25 saniye)
-  transferTimeout = setTimeout(() => {
-    if (bot && state.isQueueing) {
-      bot.physicsEnabled = true;
-      if (bot.physics) bot.physics.enabled = true;
-      state.isQueueing = false;
-      state.status = "Çalışıyor";
-      logChat('[SİSTEM] Bekleme süresi doldu, sistem açıldı.');
-    }
-  }, isLongQueue ? 25000 : 8000);
 }
 
 function checkAutoLogin(msg) {
@@ -101,7 +63,6 @@ const botActions = {
       const move = new Movements(bot, mcData);
       bot.pathfinder.setMovements(move);
       bot.pathfinder.setGoal(new goals.GoalFollow(target, 1), true);
-      bot.chat(`Geliyorum ${targetName}!`);
     }
   },
   attack: (targetName) => {
@@ -123,12 +84,14 @@ function startBot(config) {
   state.status = "Bağlanıyor...";
   isLoggedIn = false;
   
+  // En başından botu "Sırada" gibi kilitli başlatıyoruz ki AI hemen hareket etmesin
+  state.isQueueing = true; 
+  
   bot = mineflayer.createBot({
     host: config.host,
     username: config.username,
     version: config.version || "1.21.11",
     hideErrors: true,
-    brand: "vanilla"
   });
 
   bot.loadPlugin(pathfinder);
@@ -136,21 +99,21 @@ function startBot(config) {
   bot.loadPlugin(collectBlock);
 
   bot.on('spawn', () => {
-    // FİZİĞİ YENİDEN CANLANDIR
+    logChat('[SİSTEM] Dünyaya ayak basıldı.');
+    // Sunucu seni oradan oraya fırlattığı için ayak basar basmaz kilidi açmıyoruz
+    // Ortalığın durulması için 3 tam saniye bekliyoruz.
     setTimeout(() => {
       if (bot) {
-        bot.physicsEnabled = true;
-        if (bot.physics) bot.physics.enabled = true;
         state.status = "Doğdu / Çalışıyor";
-        state.isQueueing = false;
-        logChat('[SİSTEM] Asıl dünyaya yerleşildi, fizik aktif.');
+        state.isQueueing = false; 
       }
-    }, 2000);
+    }, 3000);
   });
 
   bot.on('respawn', () => {
-    logChat('[SİSTEM] Sunucu değişimi / Yapılandırma algılandı.');
-    lockBotForTransfer(false);
+    logChat('[SİSTEM] Sunucu aktarımı gerçekleşiyor...');
+    state.isQueueing = true;
+    state.status = "Aktarılıyor...";
   });
 
   bot.on('messagestr', (msg) => {
@@ -159,26 +122,18 @@ function startBot(config) {
     
     const lower = msg.toLowerCase();
     
-    if (lower.includes('sırasına girdiniz') || lower.includes('sıranız:')) {
-      lockBotForTransfer(true);
-    } else if (lower.includes('aktarım yapıyorsunuz') || lower.includes('aktarım başladı')) {
-      lockBotForTransfer(false);
-    } 
-    else if (lower.includes('başarıyla giriş yaptınız') || lower.includes('login succes') || lower.includes('giriş başarılı')) {
-      logChat('[SİSTEM] Giriş onaylandı, fiziği anında durduruyorum...');
-      lockBotForTransfer(false); 
+    // DİKKAT: Artık burada bota fiziksel veya paket bazlı hiçbir müdahale YAPMIYORUZ!
+    // Sadece "Sırada" moduna alıyoruz ki yapay zeka/panel üzerinden eylem yapılmasın.
+    if (lower.includes('sırasına girdiniz') || lower.includes('aktarım yapıyorsunuz') || lower.includes('başarıyla giriş')) {
+        state.isQueueing = true;
+        state.status = "Sırada / Aktarımda...";
+        try { bot.pathfinder.setGoal(null); } catch(e){} // Sadece hedefi sıfırla, sunucuya paket yollamaz
     }
   });
 
   bot.on('chat', async (username, message) => {
     if (username === bot.username || state.isQueueing) return;
-    
-    const botState = {
-      health: bot.health,
-      position: bot.entity ? bot.entity.position : null,
-      inventory: 'Dolu' 
-    };
-    
+    const botState = { health: bot.health, position: bot.entity ? bot.entity.position : null, inventory: 'Dolu' };
     await processAI(bot, botState, username, message, state.config.groqKey, botActions);
   });
 
@@ -199,7 +154,7 @@ function startBot(config) {
     handleReconnect();
   });
 
-  bot.on('end', (reason) => {
+  bot.on('end', () => {
     logChat(`[SİSTEM] Bağlantı sonlandı.`);
     handleReconnect();
   });
@@ -222,25 +177,19 @@ function stopBot() {
   state.isManualStop = true;
   state.status = "Kapalı";
   if (bot) { bot.quit(); bot = null; }
-  if (transferTimeout) clearTimeout(transferTimeout);
   if (reconnectTimeout) clearTimeout(reconnectTimeout);
 }
 
 function sendChat(msg) {
-  if (bot) {
-    bot.chat(msg);
-    logChat(`[SİZ]: ${msg}`);
-  }
+  if (bot) { bot.chat(msg); logChat(`[SİZ]: ${msg}`); }
 }
 
 function sendAction(action) {
   if (!bot || state.isQueueing) return;
-  
   if (action === 'jump') { bot.setControlState('jump', true); setTimeout(() => bot.setControlState('jump', false), 500); }
   else if (action === 'sneak') bot.setControlState('sneak', !bot.getControlState('sneak'));
   else if (action === 'stop') botActions.stop();
 }
 
 function getStatus() { return state; }
-
 module.exports = { startBot, stopBot, sendChat, sendAction, getStatus };
