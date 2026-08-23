@@ -36,11 +36,24 @@ let radarText = 'Yakında kimse yok.';
 let ping = '-';
 let tps = '-';
 
-// --- ÇOKLU BOT DEĞİŞKENLERİ ---
+// --- ÇOKLU BOT VE LOG DEĞİŞKENLERİ ---
 let multiBots = [];
+let systemLogs = []; // Terminal log hafızası
 
 const defaultRandomChats = ['sa', 'as', 'selam', 'heyy', 'naber', 'gg', 'kolay gelsin', 'bot degilim', 'mrb'];
 const clientBrands = ['vanilla', 'lunarclient:v2.16.0', 'fabric', 'forge'];
+
+function getTimestamp() {
+    const now = new Date();
+    return now.toTimeString().split(' ')[0];
+}
+
+function addSystemLog(tag, message, color = 'info') {
+    const time = getTimestamp();
+    const logEntry = { time, tag, message, color };
+    systemLogs.push(logEntry);
+    if (systemLogs.length > 150) systemLogs.shift();
+}
 
 function cleanText(text) {
     if (!text) return '';
@@ -89,19 +102,13 @@ function clearBotTimers(botObj) {
     botObj.reconnectTimer = null;
 }
 
-// 🎭 GÜVENLİK DUVARI AŞMA: İNSAN BENZERİ RASTGELE HAREKET & BAKIŞ
 function emulateHumanBehavior(instance) {
     if (!instance || !instance.entity) return;
     try {
-        // Rastgele kafa çevirme (Anti-Bot bot tespiti aşımı)
         const yaw = (Math.random() * 360 - 180) * (Math.PI / 180);
         const pitch = (Math.random() * 60 - 30) * (Math.PI / 180);
         instance.look(yaw, pitch, true);
-        
-        // Rastgele kol sallama
-        if (Math.random() > 0.5) {
-            instance.swingArm('right');
-        }
+        if (Math.random() > 0.5) instance.swingArm('right');
     } catch (e) {}
 }
 
@@ -109,7 +116,6 @@ function startBotMovement(botObj) {
     if (!botObj.enableMove) return;
     botObj.moveTimer = setInterval(() => {
         if (!botObj.instance || !botObj.instance.entity) return;
-        
         emulateHumanBehavior(botObj.instance);
 
         const controls = ['forward', 'back', 'left', 'right', 'jump'];
@@ -138,8 +144,8 @@ function spawnSingleMultiBot(botObj) {
 
     clearBotTimers(botObj);
     botObj.status = 'Bağlanıyor...';
+    addSystemLog('BAĞLANTI', `${botObj.username} sunucuya bağlanıyor... (${botObj.host})`, 'info');
 
-    // Anti-Bot Koruması: Rastgele Client Brand seçimi
     const randomBrand = clientBrands[Math.floor(Math.random() * clientBrands.length)];
 
     try {
@@ -161,21 +167,37 @@ function spawnSingleMultiBot(botObj) {
 
         mb.once('spawn', () => {
             botObj.status = 'Bağlı';
+            addSystemLog('BAŞARILI', `🟢 ${botObj.username} sunucuya giriş yaptı!`, 'success');
 
-            // Güvenlik duvarını kandırmak için doğar doğmaz insan gibi bakış at
-            setTimeout(() => emulateHumanBehavior(mb), 500);
+            // Otomatik Giriş / Kayıt İşlemi
+            if (botObj.password) {
+                setTimeout(() => {
+                    mb.chat(`/register ${botObj.password} ${botObj.password}`);
+                    mb.chat(`/login ${botObj.password}`);
+                    addSystemLog('AUTH', `${botObj.username} için otogiriş/kayıt komutları gönderildi.`, 'info');
+                }, 1500);
+            }
 
+            setTimeout(() => emulateHumanBehavior(mb), 600);
             startBotMovement(botObj);
             startBotChat(botObj);
         });
 
-        const handleDisconnect = (reasonText) => {
+        mb.on('messagestr', (msg) => {
+            const cleaned = cleanText(msg);
+            if (cleaned && (cleaned.toLowerCase().includes('register') || cleaned.toLowerCase().includes('login') || cleaned.toLowerCase().includes('captcha') || cleaned.toLowerCase().includes('güvenlik'))) {
+                addSystemLog('CHAT/DURUM', `[${botObj.username}] ${cleaned}`, 'warning');
+            }
+        });
+
+        const handleDisconnect = (reasonText, type = 'error') => {
             clearBotTimers(botObj);
             if (botObj.stoppedExplicitly) return;
 
+            addSystemLog('KOPMA', `🔴 [${botObj.username}] ${reasonText}`, type);
+
             if (botObj.autoReconnect) {
                 botObj.status = 'Oto Yeniden Bağlanıyor...';
-                // Anti-Bot ban yememek için değişken zamanlı yeniden bağlanma
                 const reconnectDelay = 6000 + Math.random() * 5000;
                 botObj.reconnectTimer = setTimeout(() => {
                     spawnSingleMultiBot(botObj);
@@ -185,12 +207,13 @@ function spawnSingleMultiBot(botObj) {
             }
         };
 
-        mb.on('kicked', (reason) => handleDisconnect(`Atıldı: ${cleanText(reason)}`));
-        mb.on('error', () => handleDisconnect('Hata'));
-        mb.on('end', () => handleDisconnect('Bağlantı Kesildi'));
+        mb.on('kicked', (reason) => handleDisconnect(`Atıldı: ${cleanText(reason)}`, 'error'));
+        mb.on('error', (err) => handleDisconnect(`Hata: ${err ? err.message : 'Bilinmeyen Hata'}`, 'error'));
+        mb.on('end', () => handleDisconnect('Bağlantı Kesildi', 'warning'));
 
     } catch (e) {
         botObj.status = 'Başlatma Hatası';
+        addSystemLog('HATA', `[${botObj.username}] Başlatma hatası: ${e.message}`, 'error');
     }
 }
 
@@ -280,21 +303,31 @@ app.post('/api/chat', (req, res) => {
     res.json({ success: true });
 });
 
-// --- ÇOKLU BOT ENDPOINTLERİ ---
+// --- ÇOKLU BOT VE TERMINAL ENDPOINTLERİ ---
 app.get('/api/multibot/status', (req, res) => {
     const list = multiBots.map(b => ({
         username: b.username,
         status: b.status
     }));
-    res.json({ bots: list });
+
+    const connectedCount = multiBots.filter(b => b.status === 'Bağlı').length;
+    const connectingCount = multiBots.filter(b => b.status.includes('Bağlanıyor') || b.status === 'Sıraya Alındı').length;
+    const failedCount = multiBots.filter(b => b.status.includes('Atıldı') || b.status.includes('Hata')).length;
+
+    res.json({ 
+        bots: list, 
+        logs: systemLogs,
+        stats: { connected: connectedCount, connecting: connectingCount, failed: failedCount, total: multiBots.length }
+    });
 });
 
 app.post('/api/multibot/start', (req, res) => {
-    const { host, version, count, prefix, customChat, enableMove, enableChat, autoReconnect } = req.body;
+    const { host, version, count, prefix, password, customChat, enableMove, enableChat, autoReconnect } = req.body;
     const botCount = Math.max(parseInt(count) || 1, 1);
 
+    addSystemLog('SİSTEM', `🚀 ${botCount} adet çoklu bot kuyruğa ekleniyor...`, 'info');
+
     for (let i = 0; i < botCount; i++) {
-        // Güvenlik Duvarı IP Limiti Aşımı: Giriş sürelerini rastgele (3.5s - 7s) yap
         const delay = i * (3500 + Math.random() * 3500);
         
         setTimeout(() => {
@@ -304,6 +337,7 @@ app.post('/api/multibot/start', (req, res) => {
                 username: username,
                 host: host || 'play.aesirmc.com',
                 version: version || '1.21.11',
+                password: password || '',
                 customChat: customChat || '',
                 enableMove: enableMove !== false,
                 enableChat: enableChat !== false,
@@ -328,6 +362,8 @@ app.post('/api/multibot/command', (req, res) => {
     const { command } = req.body;
     if (!command) return res.json({ success: false });
 
+    addSystemLog('TOPLU KOMUT', `Tüm botlara gönderildi: ${command}`, 'warning');
+
     multiBots.forEach(b => {
         try {
             if (b.instance && b.instance.entity) {
@@ -339,7 +375,31 @@ app.post('/api/multibot/command', (req, res) => {
     res.json({ success: true });
 });
 
+// TOPLU AKSİYONLAR (Toplu Zıpla, Eğil, Respawn vb.)
+app.post('/api/multibot/action', (req, res) => {
+    const { action } = req.body;
+    
+    multiBots.forEach(b => {
+        if (!b.instance || !b.instance.entity) return;
+        try {
+            if (action === 'jump') {
+                b.instance.setControlState('jump', true);
+                setTimeout(() => { if (b.instance) b.instance.setControlState('jump', false); }, 500);
+            } else if (action === 'sneak') {
+                const current = b.instance.getControlState('sneak');
+                b.instance.setControlState('sneak', !current);
+            } else if (action === 'respawn') {
+                b.instance.respawn();
+            }
+        } catch (e) {}
+    });
+
+    addSystemLog('TOPLU EYLEM', `Tüm botlara eylem uygulandı: ${action}`, 'info');
+    res.json({ success: true });
+});
+
 app.post('/api/multibot/stop', (req, res) => {
+    addSystemLog('SİSTEM', `⛔ Tüm çoklu botlar durduruluyor...`, 'warning');
     multiBots.forEach(b => {
         b.stoppedExplicitly = true;
         clearBotTimers(b);
