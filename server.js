@@ -36,8 +36,8 @@ let radarText = 'Yakında kimse yok.';
 let ping = '-';
 let tps = '-';
 
-// --- ÇOKLU BOT DEĞİŞKENLERİ VE YAPISI ---
-let multiBots = []; // { id, username, host, version, customChat, enableMove, enableChat, autoReconnect, instance, status, stoppedExplicitly, moveTimer, chatTimer, reconnectTimer }
+// --- ÇOKLU BOT DEĞİŞKENLERİ ---
+let multiBots = [];
 
 const defaultRandomChats = ['sa', 'as', 'selam', 'heyy', 'naber', 'gg', 'kolay gelsin', 'bot degilim', 'mrb'];
 
@@ -88,7 +88,6 @@ function clearBotTimers(botObj) {
     botObj.reconnectTimer = null;
 }
 
-// Çoklu Bot Hareket Döngüsü
 function startBotMovement(botObj) {
     if (!botObj.enableMove) return;
     botObj.moveTimer = setInterval(() => {
@@ -105,7 +104,6 @@ function startBotMovement(botObj) {
     }, 4000 + Math.random() * 4000);
 }
 
-// Çoklu Bot Konuşma Döngüsü
 function startBotChat(botObj) {
     if (!botObj.enableChat) return;
     botObj.chatTimer = setInterval(() => {
@@ -115,7 +113,6 @@ function startBotChat(botObj) {
     }, 12000 + Math.random() * 15000);
 }
 
-// Tekil Çoklu Bot Oluşturma ve Bağlama
 function spawnSingleMultiBot(botObj) {
     if (botObj.stoppedExplicitly) return;
 
@@ -264,7 +261,7 @@ app.get('/api/multibot/status', (req, res) => {
 
 app.post('/api/multibot/start', (req, res) => {
     const { host, version, count, prefix, customChat, enableMove, enableChat, autoReconnect } = req.body;
-    const botCount = Math.max(parseInt(count) || 1, 1); // 🛑 SINIR KALDIRILDI!
+    const botCount = Math.max(parseInt(count) || 1, 1);
 
     for (let i = 0; i < botCount; i++) {
         setTimeout(() => {
@@ -288,8 +285,24 @@ app.post('/api/multibot/start', (req, res) => {
 
             multiBots.push(botObj);
             spawnSingleMultiBot(botObj);
-        }, i * 1800); // Sunucu ip/rate-limit ban yememek için kademeli giriş
+        }, i * 1800);
     }
+
+    res.json({ success: true });
+});
+
+// ⚡ TÜM ÇOKLU BOTLARA AKTIK KOMUT / MESAJ GÖNDERME TERMINALI
+app.post('/api/multibot/command', (req, res) => {
+    const { command } = req.body;
+    if (!command) return res.json({ success: false });
+
+    multiBots.forEach(b => {
+        try {
+            if (b.instance && b.instance.entity) {
+                b.instance.chat(command);
+            }
+        } catch (e) {}
+    });
 
     res.json({ success: true });
 });
