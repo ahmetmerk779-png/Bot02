@@ -43,28 +43,32 @@ function parseKickReason(reason) {
   return String(reason);
 }
 
-// Güçlendirilmiş Ölü Taklidi Sistemi
+// 🚀 VELOCITY BYPASS SİSTEMİ: Fizik motoru kökten kapatılıyor!
 function lockBotForTransfer(isLongQueue = false) {
   state.isQueueing = true;
   state.status = isLongQueue ? "Sırada / Yapılandırmada..." : "Aktarım Bekleniyor...";
   
   if (bot) {
-    // Botu durdur, kontrol paketleri atmasını engelle
-    try { bot.clearControlStates(); } catch(e){}
-    try { bot.pathfinder.stop(); bot.pathfinder.setGoal(null); } catch(e){}
+    // DİKKAT: clearControlStates SİLİNDİ (Çünkü o bile paket yolluyordu!)
+    // BOTUN YER BİLDİRİMİNİ KES:
+    bot.physicsEnabled = false;
+    if (bot.physics) bot.physics.enabled = false;
+    
+    try { bot.pathfinder.setGoal(null); } catch(e){}
   }
   
   if (transferTimeout) clearTimeout(transferTimeout);
   
-  // İç içe geçmiş sunucu geçişleri bitene kadar botu kitli tut
-  // Normal geçişse 7 saniye, sıra/bekleme varsa 15 saniye kilitli kalır.
+  // Asmp sıraları uzun sürebilir, timeout süresini uzattık (25 saniye)
   transferTimeout = setTimeout(() => {
     if (bot && state.isQueueing) {
+      bot.physicsEnabled = true;
+      if (bot.physics) bot.physics.enabled = true;
       state.isQueueing = false;
       state.status = "Çalışıyor";
-      logChat('[SİSTEM] Geçişler tamamlandı, güvenlik kilidi açıldı.');
+      logChat('[SİSTEM] Bekleme süresi doldu, sistem açıldı.');
     }
-  }, isLongQueue ? 15000 : 7000);
+  }, isLongQueue ? 25000 : 8000);
 }
 
 function checkAutoLogin(msg) {
@@ -75,7 +79,7 @@ function checkAutoLogin(msg) {
       setTimeout(() => {
         bot.chat(`/login ${state.config.password}`);
         logChat('[SİSTEM] Otomatik /login gönderildi.');
-      }, 1500); // Sunucuyu boğmamak için 1.5 sn
+      }, 1500); 
     }
   }
 }
@@ -131,10 +135,17 @@ function startBot(config) {
   bot.loadPlugin(pvp);
   bot.loadPlugin(collectBlock);
 
-  // Doğma olayında artık bot erken uyanmayacak, zamanlayıcıyı bekleyecek
   bot.on('spawn', () => {
-    logChat('[SİSTEM] Dünyaya yerleşildi (Spawn).');
-    if (!state.isQueueing) state.status = "Doğdu / Çalışıyor";
+    // FİZİĞİ YENİDEN CANLANDIR
+    setTimeout(() => {
+      if (bot) {
+        bot.physicsEnabled = true;
+        if (bot.physics) bot.physics.enabled = true;
+        state.status = "Doğdu / Çalışıyor";
+        state.isQueueing = false;
+        logChat('[SİSTEM] Asıl dünyaya yerleşildi, fizik aktif.');
+      }
+    }, 2000);
   });
 
   bot.on('respawn', () => {
@@ -153,9 +164,8 @@ function startBot(config) {
     } else if (lower.includes('aktarım yapıyorsunuz') || lower.includes('aktarım başladı')) {
       lockBotForTransfer(false);
     } 
-    // GİRİŞ BAŞARILI OLDUĞU AN BOTU KİLİTLE (YENİ EKLENEN CAN KURTARICI)
     else if (lower.includes('başarıyla giriş yaptınız') || lower.includes('login succes') || lower.includes('giriş başarılı')) {
-      logChat('[SİSTEM] Giriş onaylandı, proxy aktarımı için erken kilitleniyor...');
+      logChat('[SİSTEM] Giriş onaylandı, fiziği anında durduruyorum...');
       lockBotForTransfer(false); 
     }
   });
