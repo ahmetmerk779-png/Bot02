@@ -8,7 +8,7 @@
         * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
         body { background-color: #121526; color: #c3c7db; min-height: 100vh; padding: 15px; display: flex; justify-content: center; align-items: flex-start; }
         
-        .panel { background: #1c2237; border: 1px solid #2a314d; border-radius: 14px; width: 100%; max-width: 440px; padding: 18px; box-shadow: 0 10px 30px rgba(0,0,0,0.6); display: flex; flex-direction: column; gap: 14px; position: relative; }
+        .panel { background: #1c2237; border: 1px solid #2a314d; border-radius: 14px; width: 100%; max-width: 460px; padding: 18px; box-shadow: 0 10px 30px rgba(0,0,0,0.6); display: flex; flex-direction: column; gap: 14px; position: relative; }
         
         .top-header { display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #2a314d; padding-bottom: 12px; }
         .hamburger-btn { font-size: 1.8rem; cursor: pointer; color: #818cf8; line-height: 1; user-select: none; padding: 2px 8px; border-radius: 6px; background: #141829; border: 1px solid #2a314d; }
@@ -42,9 +42,9 @@
         
         .status-text { text-align: center; font-size: 0.9rem; font-weight: 700; color: #facc15; }
         
-        .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; background: #141829; padding: 10px; border-radius: 8px; text-align: center; border: 1px solid #2a314d; }
-        .stat-item label { display: block; font-size: 0.7rem; font-weight: 700; color: #64748b; }
-        .stat-item val { font-size: 0.95rem; font-weight: 700; color: #a855f7; }
+        .stats-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; background: #141829; padding: 10px; border-radius: 8px; text-align: center; border: 1px solid #2a314d; }
+        .stat-item label { display: block; font-size: 0.65rem; font-weight: 700; color: #64748b; }
+        .stat-item val { font-size: 0.9rem; font-weight: 700; color: #a855f7; }
 
         .section-label { text-align: center; font-size: 0.75rem; font-weight: 700; color: #64748b; margin-top: 2px; }
 
@@ -53,16 +53,26 @@
         .btn-cancel { background: #f87171; color: #7f1d1d; }
         .btn-attack { background: #fb923c; color: #4c1d95; width: 100%; padding: 11px; font-size: 0.85rem; }
 
-        .console-box { background: #141829; border: 1px solid #2a314d; border-radius: 8px; padding: 10px; height: 130px; overflow-y: auto; font-size: 0.8rem; font-family: monospace; color: #94a3b8; word-break: break-word; }
+        .console-box { background: #141829; border: 1px solid #2a314d; border-radius: 8px; padding: 10px; height: 140px; overflow-y: auto; font-size: 0.75rem; font-family: monospace; color: #94a3b8; word-break: break-word; }
+        .terminal-box { background: #090c15; border: 1px solid #1e293b; border-radius: 8px; padding: 10px; height: 180px; overflow-y: auto; font-size: 0.75rem; font-family: monospace; color: #38bdf8; word-break: break-all; }
+        
+        .log-line { margin-bottom: 4px; display: flex; gap: 6px; }
+        .log-time { color: #64748b; font-weight: bold; }
+        .log-tag { color: #c084fc; font-weight: bold; }
+        .log-info { color: #94a3b8; }
+        .log-success { color: #4ade80; }
+        .log-warning { color: #facc15; }
+        .log-error { color: #f87171; }
+
         .chat-input-bar { display: flex; gap: 8px; }
         .btn-send { background: #818cf8; color: #1e1b4b; width: 85px; padding: 10px; }
-        .radar-box { background: #141829; border: 1px solid #2a314d; border-radius: 8px; padding: 10px; height: 120px; overflow-y: auto; font-size: 0.8rem; font-family: monospace; color: #4ade80; white-space: pre-wrap; word-break: break-all; }
+        .radar-box { background: #141829; border: 1px solid #2a314d; border-radius: 8px; padding: 10px; height: 100px; overflow-y: auto; font-size: 0.8rem; font-family: monospace; color: #4ade80; white-space: pre-wrap; word-break: break-all; }
 
         .view { display: flex; flex-direction: column; gap: 12px; }
         .hidden { display: none !important; }
 
-        .bot-list { background: #141829; border: 1px solid #2a314d; border-radius: 8px; padding: 10px; height: 180px; overflow-y: auto; font-size: 0.8rem; font-family: monospace; }
-        .bot-item { display: flex; justify-content: space-between; padding: 8px 4px; border-bottom: 1px dashed #2a314d; }
+        .bot-list { background: #141829; border: 1px solid #2a314d; border-radius: 8px; padding: 10px; height: 140px; overflow-y: auto; font-size: 0.8rem; font-family: monospace; }
+        .bot-item { display: flex; justify-content: space-between; padding: 6px 4px; border-bottom: 1px dashed #2a314d; }
     </style>
 </head>
 <body>
@@ -93,7 +103,6 @@
 
         <!-- 1. BÖLÜM: TEKLİ BOT -->
         <div id="viewSingle" class="view">
-            <input type="text" id="groqKey" placeholder="Groq API Key (Boşsa Env)">
             <input type="text" id="host" value="play.aesirmc.com" placeholder="Sunucu Adresi">
             <input type="text" id="username" placeholder="Bot İsmi (Örn: OtonomBot)">
             <input type="password" id="password" placeholder="Şifre (/login)">
@@ -109,6 +118,7 @@
             <div class="stats-grid">
                 <div class="stat-item"><label>PING</label><val id="ping">- ms</val></div>
                 <div class="stat-item"><label>TPS</label><val id="tps">-</val></div>
+                <div class="stat-item"><label>DURUM</label><val id="singleOnline">Pasif</val></div>
             </div>
 
             <div class="section-label">Hızlı Komutlar</div>
@@ -136,6 +146,7 @@
             <input type="text" id="mHost" value="play.aesirmc.com" placeholder="Sunucu Adresi">
             <input type="text" id="mVersion" value="1.21.11" placeholder="Sürüm (1.21.11)">
             <input type="text" id="mPrefix" value="Bot" placeholder="Bot İsim Ön Eki (Örn: Bot)">
+            <input type="password" id="mPassword" placeholder="Bot Otomatik Şifre (/login & /register)">
             <input type="number" id="mCount" value="10" placeholder="Bot Sayısı (Sınırsız)">
             <input type="text" id="mCustomChat" placeholder="Sohbet Mesajı (Boşsa rastgele atar)">
 
@@ -156,12 +167,30 @@
                 <button class="btn btn-stop" onclick="stopMultiBots()">Tümünü Durdur</button>
             </div>
 
+            <div class="stats-grid">
+                <div class="stat-item"><label>BAĞLI</label><val id="mConnected" style="color:#4ade80">0</val></div>
+                <div class="stat-item"><label>SIRADA</label><val id="mConnecting" style="color:#facc15">0</val></div>
+                <div class="stat-item"><label>ATILAN/HATA</label><val id="mFailed" style="color:#f87171">0</val></div>
+            </div>
+
+            <!-- Toplu Aksiyon Butonları -->
+            <div class="section-label">Toplu Hızlı Aksiyonlar</div>
+            <div class="quick-cmds-row">
+                <button class="btn btn-cmd" onclick="sendMultiAction('jump')">Toplu Zıpla</button>
+                <button class="btn btn-cmd" onclick="sendMultiAction('sneak')">Toplu Eğil</button>
+                <button class="btn btn-cmd btn-cancel" onclick="sendMultiAction('respawn')">Toplu Respawn</button>
+            </div>
+
             <!-- Toplu Terminal / Komut Gönderme Barı -->
             <div class="section-label">Toplu Terminal (Hepsine Gönder)</div>
             <form class="chat-input-bar" onsubmit="sendMultiCommand(event)">
                 <input type="text" id="mCommandMsg" placeholder="Tüm botlara komut/mesaj (Örn: /spawn)" autocomplete="off">
                 <button type="submit" class="btn btn-send">Gönder</button>
             </form>
+
+            <!-- Canlı Terminal & Hata Log Ekranı -->
+            <div class="section-label">Canlı Sistem Log Terminali</div>
+            <div class="terminal-box" id="terminalLogs">Loglar bekleniyor...</div>
 
             <div class="section-label">Aktif Bot Listesi</div>
             <div class="bot-list" id="multiBotList">Henüz çoklu bot sokulmadı.</div>
@@ -204,7 +233,6 @@
 
         async function startBot() {
             const data = {
-                groqKey: document.getElementById('groqKey').value,
                 host: document.getElementById('host').value,
                 username: document.getElementById('username').value,
                 password: document.getElementById('password').value,
@@ -232,6 +260,7 @@
                 host: document.getElementById('mHost').value,
                 version: document.getElementById('mVersion').value,
                 prefix: document.getElementById('mPrefix').value,
+                password: document.getElementById('mPassword').value,
                 count: document.getElementById('mCount').value,
                 customChat: document.getElementById('mCustomChat').value,
                 autoReconnect: document.getElementById('mAutoReconnect').checked,
@@ -253,6 +282,10 @@
             input.value = '';
         }
 
+        async function sendMultiAction(action) {
+            await fetch('/api/multibot/action', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action }) });
+        }
+
         async function updateStatus() {
             try {
                 // Tekli Bot Verisi
@@ -261,6 +294,7 @@
                 document.getElementById('status').innerText = data.statusText || (data.online ? 'Bağlı' : 'Kapalı');
                 document.getElementById('ping').innerText = (data.ping || '-') + ' ms';
                 document.getElementById('tps').innerText = data.tps || '-';
+                document.getElementById('singleOnline').innerText = data.online ? 'Aktif' : 'Pasif';
                 if (data.chatLogs) {
                     const chatBox = document.getElementById('chatLogs');
                     chatBox.innerHTML = data.chatLogs.join('<br>');
@@ -271,17 +305,39 @@
                 // Çoklu Bot Verisi
                 const mRes = await fetch('/api/multibot/status');
                 const mData = await mRes.json();
+                
+                // İstatistik Güncelleme
+                if (mData.stats) {
+                    document.getElementById('mConnected').innerText = mData.stats.connected;
+                    document.getElementById('mConnecting').innerText = mData.stats.connecting;
+                    document.getElementById('mFailed').innerText = mData.stats.failed;
+                }
+
+                // Bot Listesi Güncelleme
                 if (mData.bots && mData.bots.length > 0) {
                     document.getElementById('multiBotList').innerHTML = mData.bots.map(b => 
-                        `<div class="bot-item"><span>${b.username}</span><span style="color:#facc15">${b.status}</span></div>`
+                        `<div class="bot-item"><span>${b.username}</span><span style="color:${b.status === 'Bağlı' ? '#4ade80' : '#facc15'}">${b.status}</span></div>`
                     ).join('');
                 } else {
                     document.getElementById('multiBotList').innerText = 'Henüz çoklu bot sokulmadı.';
                 }
+
+                // Terminal Loglarını Yazdırma
+                if (mData.logs && mData.logs.length > 0) {
+                    const termBox = document.getElementById('terminalLogs');
+                    termBox.innerHTML = mData.logs.map(l => 
+                        `<div class="log-line">
+                            <span class="log-time">[${l.time}]</span>
+                            <span class="log-tag">[${l.tag}]</span>
+                            <span class="log-${l.color}">${l.message}</span>
+                        </div>`
+                    ).join('');
+                    termBox.scrollTop = termBox.scrollHeight;
+                }
             } catch (e) {}
         }
 
-        setInterval(updateStatus, 2000);
+        setInterval(updateStatus, 1800);
         updateStatus();
     </script>
 </body>
