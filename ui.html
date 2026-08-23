@@ -8,24 +8,32 @@
         * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
         body { background-color: #121526; color: #c3c7db; display: flex; justify-content: center; align-items: center; min-height: 100vh; padding: 20px; }
         
-        .panel { background: #1c2237; border: 1px solid #2a314d; border-radius: 12px; width: 100%; max-width: 420px; padding: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); display: flex; flex-direction: column; gap: 12px; }
+        .panel { background: #1c2237; border: 1px solid #2a314d; border-radius: 12px; width: 100%; max-width: 420px; padding: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); display: flex; flex-direction: column; gap: 12px; position: relative; overflow: hidden; }
         
-        .title { text-align: center; font-size: 1.1rem; font-weight: 700; color: #7882a4; margin-bottom: 4px; }
-        
+        /* Hamburger Header */
+        .header { display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #2a314d; padding-bottom: 10px; }
+        .hamburger { font-size: 1.5rem; cursor: pointer; color: #818cf8; user-select: none; }
+        .title { font-size: 1.1rem; font-weight: 700; color: #7882a4; }
+
+        /* Sidebar Drawer */
+        .sidebar { position: absolute; top: 0; left: -250px; width: 220px; height: 100%; background: #141829; border-right: 1px solid #2a314d; transition: 0.3s ease; z-index: 10; padding: 20px; display: flex; flex-direction: column; gap: 15px; }
+        .sidebar.active { left: 0; }
+        .sidebar-title { font-weight: 700; color: #818cf8; font-size: 1rem; border-bottom: 1px solid #2a314d; padding-bottom: 8px; }
+        .menu-item { padding: 10px; background: #1c2237; border-radius: 6px; cursor: pointer; font-size: 0.85rem; font-weight: 600; color: #c3c7db; transition: 0.2s; }
+        .menu-item:hover { background: #2a314d; color: #fff; }
+
         input { width: 100%; padding: 10px 14px; border-radius: 6px; border: 1px solid #2a314d; background: #141829; color: #fff; font-size: 0.85rem; outline: none; }
         input::placeholder { color: #525b7a; }
-        input:focus { border-color: #4f46e5; }
 
         .btn-group { display: flex; gap: 10px; }
         .btn { flex: 1; padding: 10px; border-radius: 6px; border: none; font-weight: 700; font-size: 0.85rem; cursor: pointer; transition: 0.2s; text-align: center; }
-        
         .btn-start { background: #86efac; color: #14532d; }
         .btn-stop { background: #f87171; color: #7f1d1d; }
         
-        .status-text { text-align: center; font-size: 0.85rem; font-weight: 700; color: #facc15; margin: 2px 0; }
+        .status-text { text-align: center; font-size: 0.85rem; font-weight: 700; color: #facc15; }
         
         .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; background: #141829; padding: 10px; border-radius: 6px; text-align: center; border: 1px solid #2a314d; }
-        .stat-item label { display: block; font-size: 0.65rem; font-weight: 700; color: #64748b; margin-bottom: 2px; }
+        .stat-item label { display: block; font-size: 0.65rem; font-weight: 700; color: #64748b; }
         .stat-item val { font-size: 0.9rem; font-weight: 700; color: #a855f7; }
 
         .section-label { text-align: center; font-size: 0.75rem; font-weight: 700; color: #64748b; margin-top: 4px; }
@@ -36,58 +44,107 @@
         .btn-attack { background: #fb923c; color: #4c1d95; width: 100%; padding: 10px; font-size: 0.85rem; }
 
         .console-box { background: #141829; border: 1px solid #2a314d; border-radius: 6px; padding: 10px; height: 120px; overflow-y: auto; font-size: 0.8rem; font-family: monospace; color: #94a3b8; word-break: break-word; }
-        
         .chat-input-bar { display: flex; gap: 8px; }
         .btn-send { background: #818cf8; color: #1e1b4b; width: 80px; padding: 10px; }
-
-        /* Radar Kutusu Taşma Düzeltmesi */
         .radar-box { background: #141829; border: 1px solid #2a314d; border-radius: 6px; padding: 10px; height: 110px; overflow-y: auto; font-size: 0.8rem; font-family: monospace; color: #4ade80; white-space: pre-wrap; word-break: break-all; }
+
+        .view { display: flex; flex-direction: column; gap: 12px; }
+        .hidden { display: none !important; }
+
+        .bot-list { background: #141829; border: 1px solid #2a314d; border-radius: 6px; padding: 10px; height: 200px; overflow-y: auto; font-size: 0.8rem; font-family: monospace; }
+        .bot-item { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px dashed #2a314d; }
     </style>
 </head>
 <body>
 
     <div class="panel">
-        <div class="title">Otonom Bot Paneli</div>
-
-        <input type="text" id="groqKey" placeholder="Groq API Key (Boşsa Env)">
-        <input type="text" id="host" value="play.aesirmc.com" placeholder="Sunucu Adresi">
-        <input type="text" id="username" placeholder="Bot İsmi">
-        <input type="password" id="password" placeholder="Şifre (/login)">
-        <input type="text" id="version" value="1.21.11" placeholder="Sürüm">
-
-        <div class="btn-group">
-            <button class="btn btn-start" onclick="startBot()">Başlat</button>
-            <button class="btn btn-stop" onclick="stopBot()">Durdur</button>
+        <div class="sidebar" id="sidebar">
+            <div class="sidebar-title">Navigasyon</div>
+            <div class="menu-item" onclick="switchView('single')">🤖 Tekli Bot Paneli</div>
+            <div class="menu-item" onclick="switchView('multi')">👥 Çoklu Bot Spawner</div>
         </div>
 
-        <div class="status-text">Durum: <span id="status">Kapalı</span></div>
-
-        <div class="stats-grid">
-            <div class="stat-item"><label>PING</label><val id="ping">- ms</val></div>
-            <div class="stat-item"><label>TPS</label><val id="tps">-</val></div>
+        <div class="header">
+            <div class="hamburger" onclick="toggleSidebar()">☰</div>
+            <div class="title" id="pageTitle">Tekli Bot Paneli</div>
+            <div></div>
         </div>
 
-        <div class="section-label">Hızlı Komutlar</div>
-        <div class="quick-cmds-row">
-            <button class="btn btn-cmd" onclick="sendCmd('jump')">Zıpla</button>
-            <button class="btn btn-cmd" onclick="sendCmd('sneak')">Eğil/Kalk</button>
-            <button class="btn btn-cmd btn-cancel" onclick="sendCmd('stop')">Dur/İptal</button>
+        <!-- VIEW 1: TEKLİ BOT -->
+        <div id="viewSingle" class="view">
+            <input type="text" id="groqKey" placeholder="Groq API Key (Boşsa Env)">
+            <input type="text" id="host" value="play.aesirmc.com" placeholder="Sunucu Adresi">
+            <input type="text" id="username" placeholder="Bot İsmi">
+            <input type="password" id="password" placeholder="Şifre (/login)">
+            <input type="text" id="version" value="1.21.11" placeholder="Sürüm">
+
+            <div class="btn-group">
+                <button class="btn btn-start" onclick="startBot()">Başlat</button>
+                <button class="btn btn-stop" onclick="stopBot()">Durdur</button>
+            </div>
+
+            <div class="status-text">Durum: <span id="status">Kapalı</span></div>
+
+            <div class="stats-grid">
+                <div class="stat-item"><label>PING</label><val id="ping">- ms</val></div>
+                <div class="stat-item"><label>TPS</label><val id="tps">-</val></div>
+            </div>
+
+            <div class="section-label">Hızlı Komutlar</div>
+            <div class="quick-cmds-row">
+                <button class="btn btn-cmd" onclick="sendCmd('jump')">Zıpla</button>
+                <button class="btn btn-cmd" onclick="sendCmd('sneak')">Eğil/Kalk</button>
+                <button class="btn btn-cmd btn-cancel" onclick="sendCmd('stop')">Dur/İptal</button>
+            </div>
+            <button class="btn btn-attack" onclick="sendCmd('attack')">Yakındakine Saldır</button>
+
+            <div class="section-label">Canlı Sunucu Sohbeti</div>
+            <div class="console-box" id="chatLogs"></div>
+
+            <form class="chat-input-bar" onsubmit="sendChat(event)">
+                <input type="text" id="chatMsg" placeholder="Mesaj gönder..." autocomplete="off">
+                <button type="submit" class="btn btn-send">Gönder</button>
+            </form>
+
+            <div class="section-label">Çevre Radarı</div>
+            <div class="radar-box" id="radar">Yakında kimse yok.</div>
         </div>
-        <button class="btn btn-attack" onclick="sendCmd('attack')">Yakındakine Saldır</button>
 
-        <div class="section-label">Canlı Sunucu Sohbeti</div>
-        <div class="console-box" id="chatLogs"></div>
+        <!-- VIEW 2: ÇOKLU BOT -->
+        <div id="viewMulti" class="view hidden">
+            <input type="text" id="mHost" value="play.aesirmc.com" placeholder="Sunucu Adresi">
+            <input type="text" id="mVersion" value="1.21.11" placeholder="Sürüm">
+            <input type="text" id="mPrefix" value="Bot" placeholder="Bot İsim Ön Eki (Örn: Bot)">
+            <input type="number" id="mCount" value="5" placeholder="Bot Sayısı (Max 20)">
 
-        <form class="chat-input-bar" onsubmit="sendChat(event)">
-            <input type="text" id="chatMsg" placeholder="Mesaj gönder..." autocomplete="off">
-            <button type="submit" class="btn btn-send">Gönder</button>
-        </form>
+            <div class="btn-group">
+                <button class="btn btn-start" onclick="startMultiBots()">Çoklu Başlat</button>
+                <button class="btn btn-stop" onclick="stopMultiBots()">Tümünü Durdur</button>
+            </div>
 
-        <div class="section-label">Çevre Radarı</div>
-        <div class="radar-box" id="radar">Yakında kimse yok.</div>
+            <div class="section-label">Aktif Bot Listesi</div>
+            <div class="bot-list" id="multiBotList">Henüz çoklu bot yok.</div>
+        </div>
     </div>
 
     <script>
+        function toggleSidebar() {
+            document.getElementById('sidebar').classList.toggle('active');
+        }
+
+        function switchView(view) {
+            document.getElementById('sidebar').classList.remove('active');
+            if (view === 'single') {
+                document.getElementById('viewSingle').classList.remove('hidden');
+                document.getElementById('viewMulti').classList.add('hidden');
+                document.getElementById('pageTitle').innerText = 'Tekli Bot Paneli';
+            } else {
+                document.getElementById('viewSingle').classList.add('hidden');
+                document.getElementById('viewMulti').classList.remove('hidden');
+                document.getElementById('pageTitle').innerText = 'Çoklu Bot Spawner';
+            }
+        }
+
         async function startBot() {
             const data = {
                 groqKey: document.getElementById('groqKey').value,
@@ -96,55 +153,61 @@
                 password: document.getElementById('password').value,
                 version: document.getElementById('version').value
             };
-            await fetch('/api/start', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(data)
-            });
+            await fetch('/api/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
         }
 
-        async function stopBot() {
-            await fetch('/api/stop', { method: 'POST' });
-        }
+        async function stopBot() { await fetch('/api/stop', { method: 'POST' }); }
 
         async function sendCmd(action) {
-            await fetch('/api/command', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action })
-            });
+            await fetch('/api/command', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action }) });
         }
 
         async function sendChat(e) {
             e.preventDefault();
             const input = document.getElementById('chatMsg');
             if (!input.value) return;
-            await fetch('/api/chat', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ message: input.value })
-            });
+            await fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: input.value }) });
             input.value = '';
+        }
+
+        async function startMultiBots() {
+            const data = {
+                host: document.getElementById('mHost').value,
+                version: document.getElementById('mVersion').value,
+                prefix: document.getElementById('mPrefix').value,
+                count: document.getElementById('mCount').value
+            };
+            await fetch('/api/multibot/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+        }
+
+        async function stopMultiBots() {
+            await fetch('/api/multibot/stop', { method: 'POST' });
         }
 
         async function updateStatus() {
             try {
+                // Single Status
                 const res = await fetch('/api/status');
                 const data = await res.json();
-                
                 document.getElementById('status').innerText = data.statusText || (data.online ? 'Bağlı' : 'Kapalı');
                 document.getElementById('ping').innerText = (data.ping || '-') + ' ms';
                 document.getElementById('tps').innerText = data.tps || '-';
-                
                 if (data.chatLogs) {
                     const chatBox = document.getElementById('chatLogs');
                     chatBox.innerHTML = data.chatLogs.join('<br>');
                     chatBox.scrollTop = chatBox.scrollHeight;
                 }
-                
-                if (data.radar) {
-                    const radarBox = document.getElementById('radar');
-                    radarBox.innerText = data.radar;
+                if (data.radar) document.getElementById('radar').innerText = data.radar;
+
+                // Multi Status
+                const mRes = await fetch('/api/multibot/status');
+                const mData = await mRes.json();
+                if (mData.bots && mData.bots.length > 0) {
+                    document.getElementById('multiBotList').innerHTML = mData.bots.map(b => 
+                        `<div class="bot-item"><span>${b.username}</span><span style="color:#facc15">${b.status}</span></div>`
+                    ).join('');
+                } else {
+                    document.getElementById('multiBotList').innerText = 'Henüz çoklu bot yok.';
                 }
             } catch (e) {}
         }
