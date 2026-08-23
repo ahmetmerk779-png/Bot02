@@ -165,14 +165,15 @@ function spawnSingleMultiBot(botObj) {
             fakeHost: botObj.host,
             checkTimeoutInterval: 120 * 1000,
             brand: 'vanilla',
-            viewDistance: 'tiny', // Aktarım anında veri yükünü azaltır
-            physicsEnabled: true,
+            viewDistance: 'tiny',
+            physicsEnabled: false, // 🛡️ İlk girişte fizik kapalı
             hideErrors: true
         });
 
         if (mb._client) {
             mb._client.on('error', () => {});
             mb._client.on('end', () => {});
+            if (mb._client.socket) mb._client.socket.on('error', () => {});
         }
         botObj.instance = mb;
 
@@ -193,27 +194,37 @@ function spawnSingleMultiBot(botObj) {
             botObj.status = 'Bağlı';
             addSystemLog('BAŞARILI', `🟢 ${botObj.username} sunucuya girdi!`, 'success');
             
+            // 🛡️ Sunucuya tamamen oturduktan sonra fiziği aç
+            setTimeout(() => {
+                if (mb && !botObj.inQueue) mb.physicsEnabled = true;
+            }, 3000);
+
             if (!botObj.inQueue) handleAuthAction();
             startBotMovement(botObj);
             startBotChat(botObj);
         });
 
-        // 🔄 Sunucu sırasından ana sunucuya geçiş anını yakalar
+        // 🔄 Aktarım anında fiziği dondur
         mb.on('respawn', () => {
             botObj.inQueue = false;
             botObj.status = 'Sunucuya Aktarıldı';
+            mb.physicsEnabled = false;
             try { mb.clearControlStates(); } catch (e) {}
-            setTimeout(() => handleAuthAction(), 1500);
+
+            setTimeout(() => {
+                if (mb) mb.physicsEnabled = true;
+                handleAuthAction();
+            }, 3500);
         });
 
         mb.on('messagestr', (msg) => {
             const cleaned = cleanText(msg);
             if (!cleaned) return;
 
-            // Sıra tespiti
             if (cleaned.includes('sırasına girdiniz') || cleaned.includes('Sıranız:')) {
                 botObj.inQueue = true;
                 botObj.status = 'Sırada Bekliyor';
+                mb.physicsEnabled = false; // Sıradayken fizik yok
                 try { mb.clearControlStates(); } catch (e) {}
             }
 
@@ -292,13 +303,14 @@ app.post('/api/start', (req, res) => {
             checkTimeoutInterval: 120 * 1000,
             brand: 'vanilla',
             viewDistance: 'tiny',
-            physicsEnabled: true,
+            physicsEnabled: false, // 🛡️ Aktarım sırasında atılmayı önlemek için başlangıçta kapalı
             hideErrors: true
         });
 
         if (bot._client) {
             bot._client.on('error', () => {});
             bot._client.on('end', () => {});
+            if (bot._client.socket) bot._client.socket.on('error', () => {});
         }
 
         bot.loadPlugin(pathfinder);
@@ -314,15 +326,26 @@ app.post('/api/start', (req, res) => {
         bot.once('spawn', () => {
             botStatus = 'Bağlı';
             addChatLog('[SİSTEM] Sunucuya girildi!');
+            
+            // 🛡️ Harita yüklendikten sonra hareket serbest
+            setTimeout(() => {
+                if (bot && !singleInQueue) bot.physicsEnabled = true;
+            }, 3000);
+
             if (!singleInQueue) executeSingleAuth();
         });
 
-        // 🔄 Sıradan aktarılma anı (Proxy Switch)
+        // 🔄 Aktarım anı (Proxy Switch)
         bot.on('respawn', () => {
             singleInQueue = false;
             botStatus = 'Aktarıldı';
+            if (bot) bot.physicsEnabled = false; // Aktarım esnasında fiziki dondur
             try { bot.clearControlStates(); } catch (e) {}
-            setTimeout(() => executeSingleAuth(), 1500);
+
+            setTimeout(() => {
+                if (bot) bot.physicsEnabled = true;
+                executeSingleAuth();
+            }, 3500);
         });
 
         bot.on('death', () => setTimeout(() => { try { if (bot) bot.respawn(); } catch (e) {} }, 1000));
@@ -334,6 +357,7 @@ app.post('/api/start', (req, res) => {
             if (cleaned.includes('sırasına girdiniz') || cleaned.includes('Sıranız:')) {
                 singleInQueue = true;
                 botStatus = 'Sırada';
+                if (bot) bot.physicsEnabled = false;
                 try { bot.clearControlStates(); } catch (e) {}
             }
 
