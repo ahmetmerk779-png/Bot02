@@ -79,14 +79,19 @@ function getRandomName(prefix = 'Bot') {
     return `${prefix}_${suffix}`;
 }
 
+// 🛠️ BURASI DÜZELTİLDİ
 function clearBotTimers(botObj) {
     if (botObj.moveTimer) clearInterval(botObj.moveTimer);
     if (botObj.chatTimer) clearInterval(botObj.chatTimer);
     if (botObj.reconnectTimer) clearTimeout(botObj.reconnectTimer);
     if (botObj.authTimer1) clearTimeout(botObj.authTimer1);
-    botObj.authTimer2) clearTimeout(botObj.authTimer2);
-    botObj.moveTimer = null; botObj.chatTimer = null; botObj.reconnectTimer = null;
-    botObj.authTimer1 = null; botObj.authTimer2 = null;
+    if (botObj.authTimer2) clearTimeout(botObj.authTimer2);
+    
+    botObj.moveTimer = null; 
+    botObj.chatTimer = null; 
+    botObj.reconnectTimer = null;
+    botObj.authTimer1 = null; 
+    botObj.authTimer2 = null;
 }
 
 // 🧱 DUVAR KIRICI: TCP PAKET MÜDAHALESİ (Deep Freeze Patch)
@@ -363,23 +368,31 @@ app.post('/api/chat', (req, res) => {
     res.json({ success: true });
 });
 
-// --- ÇOKLU BOT ENDPOINTLERİ KISALMIŞ ---
+// --- ÇOKLU BOT ENDPOINTLERİ ---
 app.get('/api/multibot/status', (req, res) => {
     const list = multiBots.map(b => ({ username: b.username, status: b.status }));
-    res.json({ bots: list, logs: systemLogs, stats: { total: multiBots.length } });
+    const connectedCount = multiBots.filter(b => b.status === 'Bağlı' || b.status === 'Sunucuya Aktarıldı').length;
+    const connectingCount = multiBots.filter(b => b.status.includes('Bağlanıyor') || b.status.includes('Sırada') || b.status.includes('Oto')).length;
+    const failedCount = multiBots.filter(b => b.status.includes('Atıldı') || b.status.includes('Hata') || b.status.includes('Eksik')).length;
+    res.json({ bots: list, logs: systemLogs, stats: { connected: connectedCount, connecting: connectingCount, failed: failedCount, total: multiBots.length } });
 });
 
 app.post('/api/multibot/start', (req, res) => {
     const { host, version, count, prefix, password, customChat, enableMove, enableChat, autoReconnect } = req.body;
     const botCount = Math.max(parseInt(count) || 1, 1);
-    if (!host) return res.json({ success: false });
+    if (!host) {
+        addSystemLog('HATA', `Lütfen geçerli bir IP / Sunucu Adresi girin!`, 'error');
+        return res.json({ success: false, message: 'IP gerekli' });
+    }
+
+    addSystemLog('SİSTEM', `🚀 ${botCount} bot kademeli bağlantı kuyruğuna alındı...`, 'info');
 
     for (let i = 0; i < botCount; i++) {
         setTimeout(() => {
             const botObj = {
                 id: Date.now() + Math.random(), username: getRandomName(prefix || 'Bot'), host, version: version || '1.21.11', password: password || '', customChat: customChat || '',
                 enableMove: enableMove !== false, enableChat: enableChat !== false, autoReconnect: autoReconnect !== false,
-                instance: null, status: 'Sıraya Alındı', stoppedExplicitly: false
+                instance: null, status: 'Sıraya Alındı', stoppedExplicitly: false, moveTimer: null, chatTimer: null, reconnectTimer: null, authTimer1: null, authTimer2: null
             };
             multiBots.push(botObj);
             spawnSingleMultiBot(botObj);
@@ -388,7 +401,30 @@ app.post('/api/multibot/start', (req, res) => {
     res.json({ success: true });
 });
 
+app.post('/api/multibot/command', (req, res) => {
+    const { command } = req.body;
+    if (!command) return res.json({ success: false });
+    addSystemLog('TOPLU KOMUT', `Gönderildi: ${command}`, 'warning');
+    multiBots.forEach(b => { try { if (b.instance && b.instance.entity) b.instance.chat(command); } catch (e) {} });
+    res.json({ success: true });
+});
+
+app.post('/api/multibot/action', (req, res) => {
+    const { action } = req.body;
+    multiBots.forEach(b => {
+        if (!b.instance || !b.instance.entity) return;
+        try {
+            if (action === 'jump') { b.instance.setControlState('jump', true); setTimeout(() => { if (b.instance) b.instance.setControlState('jump', false); }, 500); } 
+            else if (action === 'sneak') { const current = b.instance.getControlState('sneak'); b.instance.setControlState('sneak', !current); } 
+            else if (action === 'respawn') { b.instance.respawn(); }
+        } catch (e) {}
+    });
+    addSystemLog('TOPLU EYLEM', `Eylem uygulandı: ${action}`, 'info');
+    res.json({ success: true });
+});
+
 app.post('/api/multibot/stop', (req, res) => {
+    addSystemLog('SİSTEM', `⛔ Tüm çoklu botlar durduruluyor...`, 'warning');
     multiBots.forEach(b => { b.stoppedExplicitly = true; clearBotTimers(b); try { if (b.instance) b.instance.end(); } catch (e) {} });
     multiBots = [];
     res.json({ success: true });
