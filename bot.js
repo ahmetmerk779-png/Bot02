@@ -43,21 +43,28 @@ function parseKickReason(reason) {
   return String(reason);
 }
 
-// YENİ SİSTEM: Bot sadece durumunu kitler, ASLA paket göndermez (Ölü Taklidi)
+// Güçlendirilmiş Ölü Taklidi Sistemi
 function lockBotForTransfer(isLongQueue = false) {
   state.isQueueing = true;
   state.status = isLongQueue ? "Sırada / Yapılandırmada..." : "Aktarım Bekleniyor...";
   
+  if (bot) {
+    // Botu durdur, kontrol paketleri atmasını engelle
+    try { bot.clearControlStates(); } catch(e){}
+    try { bot.pathfinder.stop(); bot.pathfinder.setGoal(null); } catch(e){}
+  }
+  
   if (transferTimeout) clearTimeout(transferTimeout);
   
-  // Sıra varsa daha uzun bekle (15 sn), normal geçişse (6 sn)
+  // İç içe geçmiş sunucu geçişleri bitene kadar botu kitli tut
+  // Normal geçişse 7 saniye, sıra/bekleme varsa 15 saniye kilitli kalır.
   transferTimeout = setTimeout(() => {
     if (bot && state.isQueueing) {
       state.isQueueing = false;
       state.status = "Çalışıyor";
-      logChat('[SİSTEM] Aktarım/Sıra süresi doldu, kilidi açtım.');
+      logChat('[SİSTEM] Geçişler tamamlandı, güvenlik kilidi açıldı.');
     }
-  }, isLongQueue ? 15000 : 6000);
+  }, isLongQueue ? 15000 : 7000);
 }
 
 function checkAutoLogin(msg) {
@@ -68,14 +75,14 @@ function checkAutoLogin(msg) {
       setTimeout(() => {
         bot.chat(`/login ${state.config.password}`);
         logChat('[SİSTEM] Otomatik /login gönderildi.');
-      }, 1000);
+      }, 1500); // Sunucuyu boğmamak için 1.5 sn
     }
   }
 }
 
 const botActions = {
   stop: () => {
-    if (bot && !state.isQueueing) { // Geçiş esnasında durdurma komutunu bile engelle
+    if (bot && !state.isQueueing) {
       try { bot.clearControlStates(); } catch(e){}
       try { bot.pathfinder.stop(); bot.pathfinder.setGoal(null); } catch(e){}
       try { bot.pvp.stop(); } catch(e){}
@@ -124,16 +131,10 @@ function startBot(config) {
   bot.loadPlugin(pvp);
   bot.loadPlugin(collectBlock);
 
+  // Doğma olayında artık bot erken uyanmayacak, zamanlayıcıyı bekleyecek
   bot.on('spawn', () => {
-    // Matruşka sunucularda peş peşe spawn atılabileceği için kilidi anında açmıyoruz.
-    // 2 saniye bekleyip ortalığın durulduğundan emin oluyoruz.
-    setTimeout(() => {
-      if (bot) {
-        state.status = "Doğdu / Çalışıyor";
-        state.isQueueing = false;
-        logChat('[SİSTEM] Dünyaya başarıyla yerleşildi.');
-      }
-    }, 2000);
+    logChat('[SİSTEM] Dünyaya yerleşildi (Spawn).');
+    if (!state.isQueueing) state.status = "Doğdu / Çalışıyor";
   });
 
   bot.on('respawn', () => {
@@ -145,11 +146,17 @@ function startBot(config) {
     logChat(msg);
     checkAutoLogin(msg);
     
-    // AesirGuard sıra sistemi ve aktarımlarını yakalama
-    if (msg.includes('sırasına girdiniz') || msg.includes('Sıranız:')) {
-      lockBotForTransfer(true); // Uzun kilit (Sıra bekleme)
-    } else if (msg.includes('Aktarım yapıyorsunuz') || msg.includes('Aktarım başladı')) {
-      lockBotForTransfer(false); // Kısa kilit
+    const lower = msg.toLowerCase();
+    
+    if (lower.includes('sırasına girdiniz') || lower.includes('sıranız:')) {
+      lockBotForTransfer(true);
+    } else if (lower.includes('aktarım yapıyorsunuz') || lower.includes('aktarım başladı')) {
+      lockBotForTransfer(false);
+    } 
+    // GİRİŞ BAŞARILI OLDUĞU AN BOTU KİLİTLE (YENİ EKLENEN CAN KURTARICI)
+    else if (lower.includes('başarıyla giriş yaptınız') || lower.includes('login succes') || lower.includes('giriş başarılı')) {
+      logChat('[SİSTEM] Giriş onaylandı, proxy aktarımı için erken kilitleniyor...');
+      lockBotForTransfer(false); 
     }
   });
 
@@ -217,7 +224,6 @@ function sendChat(msg) {
 }
 
 function sendAction(action) {
-  // Sırada beklerken panelden hareket tuşlarına basılmasını da engelle
   if (!bot || state.isQueueing) return;
   
   if (action === 'jump') { bot.setControlState('jump', true); setTimeout(() => bot.setControlState('jump', false), 500); }
