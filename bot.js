@@ -147,11 +147,24 @@ function startBot(config) {
     lockBotForTransfer(8000);
   });
 
-  // 🚀 YENİ TPA KORUMASI: Ağ paketleri kilitlenmeyecek, sadece hedefler sıfırlanacak!
+  // 🚀 YENİ TPA KORUMASI: Işınlanma anında fizik motorunu tamamen kapatarak hatalı paket üretimini engelle!
   bot.on('forcedMove', () => {
     try { bot.clearControlStates(); } catch(e){}
     try { bot.pathfinder.setGoal(null); } catch(e){}
-    logChat('[SİSTEM] Işınlanma (TPA) algılandı, bot hedeflerini sıfırladı.');
+    
+    // Hatalı paketleri önlemek için fizik motorunun fişini çek
+    if (bot) {
+        bot.physicsEnabled = false;
+        logChat('[SİSTEM] TPA algılandı. Hatalı paketleri önlemek için fizik motoru 2s kapatıldı.');
+
+        // 2 saniye sonra her şey normale dönünce fiziği geri ver
+        setTimeout(() => {
+            if (bot) {
+                bot.physicsEnabled = true;
+                logChat('[SİSTEM] Işınlanma tamamlandı, fizik geri açıldı.');
+            }
+        }, 2000);
+    }
   });
 
   bot.on('messagestr', (msg) => {
