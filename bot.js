@@ -7,6 +7,7 @@ const { processAI } = require('./ai');
 let bot = null;
 let isLoggedIn = false;
 let reconnectTimeout = null;
+let transferTimeout = null;
 let state = {
   status: "Kapalı", ping: "-", tps: "-",
   chatLogs: [], radar: [],
@@ -73,6 +74,24 @@ const botActions = {
   }
 };
 
+function lockBotForTransfer(timeoutMs = 15000) {
+  state.isQueueing = true;
+  state.status = "Aktarım Bekleniyor...";
+  
+  if (bot) {
+    try { bot.pathfinder.setGoal(null); } catch(e){}
+  }
+  
+  if (transferTimeout) clearTimeout(transferTimeout);
+  transferTimeout = setTimeout(() => {
+    if (bot && state.isQueueing) {
+      state.isQueueing = false;
+      state.status = "Çalışıyor";
+      logChat('[SİSTEM] Bekleme süresi doldu, duvar açıldı.');
+    }
+  }, timeoutMs);
+}
+
 function startBot(config) {
   if (bot) {
     try { bot.quit(); } catch(e) {}
@@ -83,9 +102,7 @@ function startBot(config) {
   state.isManualStop = false;
   state.status = "Bağlanıyor...";
   isLoggedIn = false;
-  
-  // En başından botu "Sırada" gibi kilitli başlatıyoruz ki AI hemen hareket etmesin
-  state.isQueueing = true; 
+  state.isQueueing = true; // Başlangıçta duvarı çekiyoruz
   
   bot = mineflayer.createBot({
     host: config.host,
@@ -94,26 +111,45 @@ function startBot(config) {
     hideErrors: true,
   });
 
+  // 🚀 AĞ KATMANI AMELİYATI (PACKET INTERCEPTOR) 🚀
+  const originalWrite = bot._client.write.bind(bot._client);
+  bot._client.write = (name, data) => {
+    // Bot sıradayken veya geçişteyken tehlikeli paketleri FİLTRELE
+    if (state.isQueueing) {
+      const blockedPackets = [
+        'position', 'position_look', 'look', 'flying', 
+        'settings', 'client_information', 'teleport_confirm', 
+        'arm_animation', 'use_item', 'block_place', 'vehicle_move'
+      ];
+      
+      if (blockedPackets.includes(name)) {
+        // Velocity'nin sevmediği tüm paketler burada imha ediliyor
+        return; 
+      }
+    }
+    // Tehlikeli değilse veya bot serbestse paketin gitmesine izin ver
+    originalWrite(name, data);
+  };
+
   bot.loadPlugin(pathfinder);
   bot.loadPlugin(pvp);
   bot.loadPlugin(collectBlock);
 
   bot.on('spawn', () => {
-    logChat('[SİSTEM] Dünyaya ayak basıldı.');
-    // Sunucu seni oradan oraya fırlattığı için ayak basar basmaz kilidi açmıyoruz
-    // Ortalığın durulması için 3 tam saniye bekliyoruz.
+    logChat('[SİSTEM] Dünyaya ayak basıldı, paketler analiz ediliyor...');
+    // Sunucu tamamen yüklenene kadar Güvenlik Duvarı 3 saniye daha aktif kalsın
     setTimeout(() => {
       if (bot) {
         state.status = "Doğdu / Çalışıyor";
-        state.isQueueing = false; 
+        state.isQueueing = false; // Duvar indirildi, fizik aktif!
+        logChat('[SİSTEM] Güvenlik duvarı indirildi, bot serbest.');
       }
     }, 3000);
   });
 
   bot.on('respawn', () => {
-    logChat('[SİSTEM] Sunucu aktarımı gerçekleşiyor...');
-    state.isQueueing = true;
-    state.status = "Aktarılıyor...";
+    logChat('[SİSTEM] Boyut geçişi! Güvenlik duvarı aktif edildi.');
+    lockBotForTransfer(8000);
   });
 
   bot.on('messagestr', (msg) => {
@@ -122,12 +158,11 @@ function startBot(config) {
     
     const lower = msg.toLowerCase();
     
-    // DİKKAT: Artık burada bota fiziksel veya paket bazlı hiçbir müdahale YAPMIYORUZ!
-    // Sadece "Sırada" moduna alıyoruz ki yapay zeka/panel üzerinden eylem yapılmasın.
-    if (lower.includes('sırasına girdiniz') || lower.includes('aktarım yapıyorsunuz') || lower.includes('başarıyla giriş')) {
-        state.isQueueing = true;
-        state.status = "Sırada / Aktarımda...";
-        try { bot.pathfinder.setGoal(null); } catch(e){} // Sadece hedefi sıfırla, sunucuya paket yollamaz
+    if (lower.includes('sırasına girdiniz') || lower.includes('aktarım yapıyorsunuz')) {
+        lockBotForTransfer(25000); // Sıra beklerken duvarı uzun tut
+    } else if (lower.includes('başarıyla giriş') || lower.includes('login succes')) {
+        logChat('[SİSTEM] Şifre onaylandı, ağ katmanı kilitleniyor...');
+        lockBotForTransfer(10000);
     }
   });
 
@@ -177,6 +212,7 @@ function stopBot() {
   state.isManualStop = true;
   state.status = "Kapalı";
   if (bot) { bot.quit(); bot = null; }
+  if (transferTimeout) clearTimeout(transferTimeout);
   if (reconnectTimeout) clearTimeout(reconnectTimeout);
 }
 
