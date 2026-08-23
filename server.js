@@ -1,44 +1,50 @@
 const express = require('express');
 const path = require('path');
-const botManager = require('./bot');
 
-const app = express();
-const PORT = process.env.PORT || 10000;
+function startWebServer(bot) {
+    const app = express();
+    // Render'ın atadığı dinamik PORT veya varsayılan 3000 portu
+    const PORT = process.env.PORT || 3000;
 
-app.use(express.json());
+    app.use(express.json());
+    app.use(express.static(__dirname));
 
-// Arayüzü sun
-app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'ui.html'));
-});
+    // Arayüz sayfası (ui.html)
+    app.get('/', (req, res) => {
+        res.sendFile(path.join(__dirname, 'ui.html'));
+    });
 
-// API Uç Noktaları
-app.get('/api/status', (req, res) => {
-  res.json(botManager.getStatus());
-});
+    // Web paneli için canlı bot durumu (Can, Açlık, Konum)
+    app.get('/api/status', (req, res) => {
+        if (!bot || !bot.entity) {
+            return res.json({ status: 'offline', message: 'Bot henüz doğmadı.' });
+        }
+        res.json({
+            status: 'online',
+            username: bot.username,
+            health: bot.health,
+            food: bot.food,
+            position: {
+                x: Math.round(bot.entity.position.x),
+                y: Math.round(bot.entity.position.y),
+                z: Math.round(bot.entity.position.z)
+            }
+        });
+    });
 
-app.post('/api/start', (req, res) => {
-  botManager.startBot(req.body);
-  res.json({ success: true });
-});
+    // Web panelinden oyuna mesaj gönderme uç noktası
+    app.post('/api/chat', (req, res) => {
+        const { message } = req.body;
+        if (bot && message) {
+            bot.chat(message);
+            return res.json({ success: true, message: 'Mesaj sunucuya iletildi.' });
+        }
+        res.status(400).json({ success: false, message: 'Geçersiz istek.' });
+    });
 
-app.post('/api/stop', (req, res) => {
-  botManager.stopBot();
-  res.json({ success: true });
-});
+    app.listen(PORT, () => {
+        console.log(`[WEB] Web Kontrol Paneli ${PORT} portunda başarıyla başlatıldı.`);
+    });
+}
 
-app.post('/api/chat', (req, res) => {
-  botManager.sendChat(req.body.message);
-  res.json({ success: true });
-});
-
-app.post('/api/action', (req, res) => {
-  botManager.sendAction(req.body.action);
-  res.json({ success: true });
-});
-
-// Çökme Engelleyici
-process.on('uncaughtException', err => console.log('[ÇÖKME ÖNLENDİ]', err.message));
-process.on('unhandledRejection', reason => console.log('[ÇÖKME ÖNLENDİ]', reason));
-
-app.listen(PORT, () => console.log(`Otonom AI Web Paneli ${PORT} portunda dinlemede.`));
+module.exports = startWebServer;
