@@ -7,6 +7,7 @@ const { processAI } = require('./ai');
 let bot = null;
 let isLoggedIn = false;
 let transferTimeout = null; 
+let reconnectTimeout = null; // SPAM GİRİŞ ENGELLEYİCİ
 let state = {
   status: "Kapalı", ping: "-", tps: "-",
   chatLogs: [], radar: [],
@@ -59,7 +60,7 @@ function lockBotForTransfer() {
       state.status = "Çalışıyor";
       logChat('[SİSTEM] Aktarım/TPA süreci tamamlandı.');
     }
-  }, 3000); // 3 saniyeye düşürdük
+  }, 3000);
 }
 
 function checkAutoLogin(msg) {
@@ -104,6 +105,12 @@ const botActions = {
 };
 
 function startBot(config) {
+  // ESKİ HAYALET BOT KALINTILARINI TEMİZLE
+  if (bot) {
+    try { bot.quit(); } catch(e) {}
+    bot = null;
+  }
+
   state.config = config;
   state.isManualStop = false;
   state.status = "Bağlanıyor...";
@@ -127,13 +134,10 @@ function startBot(config) {
     state.isQueueing = false;
   });
 
-  // TPA tetikleyicisi olarak sadece GERÇEK sunucu değişimlerini baz alıyoruz.
   bot.on('respawn', () => {
     logChat('[SİSTEM] Sunucu değişimi / Respawn algılandı.');
     lockBotForTransfer();
   });
-  
-  // DİKKAT: bot.on('forcedMove', lockBotForTransfer); SATIRINI SİLDİK! (Lobide spam yapan baş belası buydu)
 
   bot.on('messagestr', (msg) => {
     logChat(msg);
@@ -183,10 +187,19 @@ function startBot(config) {
   });
 }
 
+// ÇİFT GİRİŞİ ENGELLEYEN YENİ RECONNECT SİSTEMİ
 function handleReconnect() {
   if (state.isManualStop) return;
+  
+  // Halihazırda sayan bir yeniden bağlanma sayacı varsa iptal et
+  if (reconnectTimeout) clearTimeout(reconnectTimeout);
+  
   state.status = "Yeniden Bağlanıyor (5s)...";
-  setTimeout(() => { if (!state.isManualStop) startBot(state.config); }, 5000);
+  
+  // Tek bir temiz sayaç başlat
+  reconnectTimeout = setTimeout(() => { 
+    if (!state.isManualStop) startBot(state.config); 
+  }, 5000); 
 }
 
 function stopBot() {
@@ -194,9 +207,9 @@ function stopBot() {
   state.status = "Kapalı";
   if (bot) { bot.quit(); bot = null; }
   if (transferTimeout) clearTimeout(transferTimeout);
+  if (reconnectTimeout) clearTimeout(reconnectTimeout);
 }
 
-// Panelden yazılan mesajlar artık her koşulda iletilecek (!state.isQueueing kısıtlamasını sildik)
 function sendChat(msg) {
   if (bot) {
     bot.chat(msg);
@@ -204,7 +217,6 @@ function sendChat(msg) {
   }
 }
 
-// Panelden tıklanan zıpla, eğil gibi hareket butonları da serbest
 function sendAction(action) {
   if (!bot) return;
   if (action === 'jump') { bot.setControlState('jump', true); setTimeout(() => bot.setControlState('jump', false), 500); }
