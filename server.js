@@ -1,4 +1,3 @@
-
 const express = require('express');
 const path = require('path');
 const mineflayer = require('mineflayer');
@@ -20,6 +19,8 @@ process.on('uncaughtException', (err) => {
         msg.includes('protocol') || 
         msg.includes('PartialReadError') || 
         msg.includes('ECONNRESET') ||
+        msg.includes('EPIPE') ||
+        msg.includes('write') ||
         msg.includes('partial packet')
     ) {
         return;
@@ -42,7 +43,6 @@ let multiBots = [];
 let systemLogs = [];
 
 const defaultRandomChats = ['sa', 'as', 'selam', 'heyy', 'naber', 'gg', 'kolay gelsin', 'bot degilim', 'mrb'];
-const clientBrands = ['vanilla', 'lunarclient:v2.16.0', 'fabric', 'forge'];
 
 function getTimestamp() {
     return new Date().toTimeString().split(' ')[0];
@@ -154,8 +154,6 @@ function spawnSingleMultiBot(botObj) {
     botObj.status = 'Bağlanıyor...';
     addSystemLog('BAĞLANTI', `${botObj.username} (${botObj.host}) sunucusuna bağlanıyor...`, 'info');
 
-    const randomBrand = clientBrands[Math.floor(Math.random() * clientBrands.length)];
-
     try {
         const mb = mineflayer.createBot({
             host: botObj.host,
@@ -164,13 +162,16 @@ function spawnSingleMultiBot(botObj) {
             version: botObj.version || '1.21.11',
             fakeHost: botObj.host,
             checkTimeoutInterval: 120 * 1000,
-            brand: randomBrand,
+            brand: 'vanilla',
             viewDistance: 'normal',
             physicsEnabled: true,
             hideErrors: true
         });
 
-        if (mb._client) mb._client.on('error', () => {});
+        if (mb._client) {
+            mb._client.on('error', () => {});
+            mb._client.on('end', () => {});
+        }
         botObj.instance = mb;
 
         mb.once('spawn', () => {
@@ -223,7 +224,7 @@ function spawnSingleMultiBot(botObj) {
         };
 
         mb.on('kicked', (reason) => handleDisconnect(`Atıldı: ${cleanText(reason)}`, 'error'));
-        mb.on('error', (err) => handleDisconnect(`Hata: ${err ? err.message : 'Bilinmeyen Hata'}`, 'error'));
+        mb.on('error', (err) => handleDisconnect(`Hata: ${err ? err.message : 'Bağlantı kesildi'}`, 'error'));
         mb.on('end', () => handleDisconnect('Bağlantı Kesildi', 'warning'));
 
     } catch (e) {
@@ -255,7 +256,10 @@ app.post('/api/start', (req, res) => {
         return res.json({ success: false, message: 'IP boş' });
     }
 
-    if (bot) { try { bot.end(); } catch (e) {} }
+    if (bot) { 
+        try { bot.end(); } catch (e) {} 
+        bot = null;
+    }
 
     botStatus = 'Bağlanıyor...';
     addChatLog('[SİSTEM] Bot başlatılıyor...');
@@ -268,13 +272,20 @@ app.post('/api/start', (req, res) => {
             version: version || '1.21.11',
             fakeHost: host,
             checkTimeoutInterval: 120 * 1000,
-            brand: 'lunarclient:v2.16.0',
+            brand: 'vanilla', // 🛡️ AesirGuard engelini aşmak için varsayılan vanilla
             viewDistance: 'normal',
             physicsEnabled: true,
             hideErrors: true
         });
 
-        if (bot._client) bot._client.on('error', () => {});
+        // 🛡️ Soket seviyesinde EPIPE / Reset hatalarını yakala
+        if (bot._client) {
+            bot._client.on('error', (err) => {
+                const msg = err ? err.message || err.toString() : '';
+                if (msg.includes('EPIPE') || msg.includes('write')) return;
+            });
+            bot._client.on('end', () => {});
+        }
 
         bot.loadPlugin(pathfinder);
         bot.loadPlugin(pvp);
@@ -284,18 +295,23 @@ app.post('/api/start', (req, res) => {
             addChatLog('[SİSTEM] Sunucuya girildi!');
             setTimeout(() => emulateHumanBehavior(bot), 600);
             
+            // 🔐 Otomatik Register & Login zinciri
             if (password) {
-                setTimeout(() => bot.chat(`/register ${password} ${password}`), 2500);
-                setTimeout(() => bot.chat(`/login ${password}`), 5000);
+                setTimeout(() => {
+                    if (bot && bot.entity) bot.chat(`/register ${password} ${password}`);
+                }, 3000);
+                setTimeout(() => {
+                    if (bot && bot.entity) bot.chat(`/login ${password}`);
+                }, 5500);
             }
         });
 
-        bot.on('death', () => setTimeout(() => { try { bot.respawn(); } catch (e) {} }, 1000));
+        bot.on('death', () => setTimeout(() => { try { if (bot) bot.respawn(); } catch (e) {} }, 1000));
         bot.on('messagestr', (message) => addChatLog(message));
         bot.on('kicked', (reason) => { botStatus = 'Atıldı'; addChatLog(`[KICK] ${cleanText(reason)}`); });
         bot.on('error', (err) => { 
-            const msg = err.message || '';
-            if (msg.includes('Read') || msg.includes('partial') || msg.includes('ECONNRESET')) return;
+            const msg = err ? err.message || '' : '';
+            if (msg.includes('Read') || msg.includes('partial') || msg.includes('ECONNRESET') || msg.includes('EPIPE')) return;
             botStatus = 'Hata'; 
             addChatLog(`[HATA] ${msg}`); 
         });
@@ -305,7 +321,7 @@ app.post('/api/start', (req, res) => {
 });
 
 app.post('/api/stop', (req, res) => {
-    if (bot) { bot.end(); bot = null; }
+    if (bot) { try { bot.end(); } catch (e) {} bot = null; }
     botStatus = 'Kapalı';
     res.json({ success: true });
 });
@@ -313,7 +329,7 @@ app.post('/api/stop', (req, res) => {
 app.post('/api/command', (req, res) => {
     const { action } = req.body;
     if (!bot) return res.json({ success: false });
-    if (action === 'jump') { bot.setControlState('jump', true); setTimeout(() => bot.setControlState('jump', false), 500); }
+    if (action === 'jump') { bot.setControlState('jump', true); setTimeout(() => { if(bot) bot.setControlState('jump', false); }, 500); }
     else if (action === 'sneak') { bot.setControlState('sneak', !bot.getControlState('sneak')); }
     else if (action === 'stop') { bot.clearControlStates(); try { bot.pathfinder.stop(); } catch (e) {} try { bot.pvp.stop(); } catch (e) {} }
     else if (action === 'attack') {
@@ -328,7 +344,7 @@ app.post('/api/chat', (req, res) => {
     res.json({ success: true });
 });
 
-// --- ÇOKLU BOT VE TERMINAL ENDPOINTLERİ ---
+// --- ÇOKLU BOT ENDPOINTLERİ ---
 app.get('/api/multibot/status', (req, res) => {
     const list = multiBots.map(b => ({
         username: b.username,
