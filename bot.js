@@ -6,7 +6,7 @@ const { processAI } = require('./ai');
 
 let bot = null;
 let isLoggedIn = false;
-let transferTimeout = null; // SPAM ENGELLEYİCİ ZAMANLAYICI
+let transferTimeout = null; 
 let state = {
   status: "Kapalı", ping: "-", tps: "-",
   chatLogs: [], radar: [],
@@ -51,7 +51,6 @@ function lockBotForTransfer() {
     try { bot.pathfinder.stop(); bot.pathfinder.setGoal(null); } catch(e){}
   }
   
-  // SPAM ÇÖZÜMÜ: Eğer arkada çalışan bir sayaç varsa onu iptal et
   if (transferTimeout) clearTimeout(transferTimeout);
   
   transferTimeout = setTimeout(() => {
@@ -60,7 +59,7 @@ function lockBotForTransfer() {
       state.status = "Çalışıyor";
       logChat('[SİSTEM] Aktarım/TPA süreci tamamlandı.');
     }
-  }, 4000);
+  }, 3000); // 3 saniyeye düşürdük
 }
 
 function checkAutoLogin(msg) {
@@ -71,7 +70,7 @@ function checkAutoLogin(msg) {
       setTimeout(() => {
         bot.chat(`/login ${state.config.password}`);
         logChat('[SİSTEM] Otomatik /login gönderildi.');
-      }, 1500);
+      }, 1000);
     }
   }
 }
@@ -128,12 +127,13 @@ function startBot(config) {
     state.isQueueing = false;
   });
 
+  // TPA tetikleyicisi olarak sadece GERÇEK sunucu değişimlerini baz alıyoruz.
   bot.on('respawn', () => {
     logChat('[SİSTEM] Sunucu değişimi / Respawn algılandı.');
     lockBotForTransfer();
   });
   
-  bot.on('forcedMove', lockBotForTransfer);
+  // DİKKAT: bot.on('forcedMove', lockBotForTransfer); SATIRINI SİLDİK! (Lobide spam yapan baş belası buydu)
 
   bot.on('messagestr', (msg) => {
     logChat(msg);
@@ -196,15 +196,17 @@ function stopBot() {
   if (transferTimeout) clearTimeout(transferTimeout);
 }
 
+// Panelden yazılan mesajlar artık her koşulda iletilecek (!state.isQueueing kısıtlamasını sildik)
 function sendChat(msg) {
-  if (bot && !state.isQueueing) {
+  if (bot) {
     bot.chat(msg);
     logChat(`[SİZ]: ${msg}`);
   }
 }
 
+// Panelden tıklanan zıpla, eğil gibi hareket butonları da serbest
 function sendAction(action) {
-  if (!bot || state.isQueueing) return;
+  if (!bot) return;
   if (action === 'jump') { bot.setControlState('jump', true); setTimeout(() => bot.setControlState('jump', false), 500); }
   else if (action === 'sneak') bot.setControlState('sneak', !bot.getControlState('sneak'));
   else if (action === 'stop') botActions.stop();
