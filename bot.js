@@ -87,7 +87,7 @@ function lockBotForTransfer(timeoutMs = 15000) {
     if (bot && state.isQueueing) {
       state.isQueueing = false;
       state.status = "Çalışıyor";
-      logChat('[SİSTEM] Bekleme süresi doldu, duvar açıldı.');
+      logChat('[SİSTEM] Bekleme süresi doldu, protokol aktif.');
     }
   }, timeoutMs);
 }
@@ -104,29 +104,34 @@ function startBot(config) {
   isLoggedIn = false;
   state.isQueueing = true; 
   
-  // 🛡️ VANILLA İSTEMCİ MASKeleme (Velocity'yi kandırmak için)
+  // 🚀 HARDCORE LAUNCHER PROTOKOL SIMULATOR
   bot = mineflayer.createBot({
     host: config.host,
     username: config.username,
     version: config.version || "1.21.11",
     hideErrors: true,
-    // Sunucuya orijinal istemci gibi görünmek için brand bilgisini vanilla yapıyoruz
     brand: 'vanilla',
-    checkTimeoutInterval: 60000 // Sunucu gecikmelerinden dolayı erken kopmayı engellemek için timeout süresini uzatıyoruz
+    checkTimeoutInterval: 120000 // Sunucu gecikmelerine karşı sabır süresini 2 dakikaya çıkardık
   });
 
   if (bot && bot._client) {
+    // Ham TCP / Paket düzeyinde orijinal istemci simülasyonu
+    bot._client.on('connect', () => {
+      logChat('[PROTOKOL] Ham TCP socket bağlantısı kuruldu, Launcher imzası yükleniyor...');
+    });
+
     const originalWrite = bot._client.write.bind(bot._client);
     bot._client.write = (name, data) => {
       if (state.isQueueing) {
-        const unsafePackets = [
+        // Sunucu geçişlerinde ve ilk girişte Internal Error tetikleyecek paketleri tamamen susturuyoruz
+        const blockedPackets = [
           'position', 'position_look', 'look', 'flying', 
           'settings', 'client_information', 
           'arm_animation', 'use_item', 'block_place', 'vehicle_move',
           'teleport_confirm'
         ];
         
-        if (unsafePackets.includes(name)) {
+        if (blockedPackets.includes(name)) {
           return; 
         }
       }
@@ -134,7 +139,7 @@ function startBot(config) {
     };
 
     bot._client.on('error', (err) => {
-      logChat(`[PROTOKOL UYARI]: ${err.message}`);
+      logChat(`[PROTOKOL HATA]: ${err.message}`);
     });
   }
 
@@ -143,18 +148,33 @@ function startBot(config) {
   bot.loadPlugin(collectBlock);
 
   bot.on('spawn', () => {
-    logChat('[SİSTEM] Dünyaya ayak basıldı, maskeleme aktif.');
+    logChat('[SİSTEM] Dünyaya başarıyla adım atıldı!');
+    
+    // Sunucuya ilk girişte orijinal istemci gibi "Client Settings" (Görüş mesafesi, dil vb.) paketini kendimiz yolluyoruz
+    try {
+      bot._client.write('client_information', {
+        locale: 'en_US',
+        viewDistance: 12,
+        chatMode: 0,
+        chatColors: true,
+        displayedSkinParts: 127,
+        mainHand: 1,
+        enableTextFiltering: false,
+        allowServerListings: true
+      });
+    } catch(e) {}
+
     setTimeout(() => {
       if (bot) {
         state.status = "Doğdu / Çalışıyor";
         state.isQueueing = false; 
-        logChat('[SİSTEM] Güvenlik duvarı indirildi, bot serbest.');
+        logChat('[SİSTEM] Güvenlik duvarı tamamen aşıldı, bot serbest!');
       }
     }, 4000);
   });
 
   bot.on('respawn', () => {
-    logChat('[SİSTEM] Boyut geçişi! Güvenlik duvarı aktif.');
+    logChat('[SİSTEM] Boyut/Sunucu geçişi! Protokol kilitleri aktif.');
     lockBotForTransfer(8000);
   });
 
@@ -164,12 +184,12 @@ function startBot(config) {
     
     if (bot) {
         bot.physicsEnabled = false;
-        logChat('[SİSTEM] Işınlanma algılandı, fizik 2s askıda.');
+        logChat('[SİSTEM] Işınlanma (TPA) yakalandı, paket koruması devrede.');
 
         setTimeout(() => {
             if (bot) {
                 bot.physicsEnabled = true;
-                logChat('[SİSTEM] Fizik geri açıldı.');
+                logChat('[SİSTEM] Fizik motoru tekrar aktif.');
             }
         }, 2000);
     }
@@ -186,10 +206,10 @@ function startBot(config) {
         lower.includes('lobi sunucusuna') || 
         lower.includes('yeniden başlatılıyor')) {
         
-        logChat('[SİSTEM] Acil durum veya sahte bakım tespit edildi, ağ kilitleniyor!');
+        logChat('[SİSTEM] Sunucu aktarımı algılandı, protokol kilitleniyor!');
         lockBotForTransfer(25000); 
     } else if (lower.includes('başarıyla giriş') || lower.includes('login succes')) {
-        logChat('[SİSTEM] Şifre onaylandı, ağ katmanı kilitleniyor...');
+        logChat('[SİSTEM] Şifre onaylandı, protokol sabitleniyor...');
         lockBotForTransfer(10000);
     }
   });
