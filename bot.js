@@ -5,6 +5,7 @@ const { plugin: collectBlock } = require('mineflayer-collectblock');
 const { processAI } = require('./ai');
 
 let bot = null;
+let isLoggedIn = false;
 let state = {
   status: "Kapalı", ping: "-", tps: "-",
   chatLogs: [], radar: [],
@@ -17,34 +18,59 @@ function logChat(msg) {
   if (state.chatLogs.length > 50) state.chatLogs.shift();
 }
 
+// Sunucunun attığı [object Object] hatasını düzgün metne çeviren fonksiyon
+function parseKickReason(reason) {
+  if (!reason) return "Bilinmeyen Neden";
+  try {
+    if (typeof reason === 'string') {
+      const parsed = JSON.parse(reason);
+      if (parsed.text) return parsed.text;
+      if (parsed.extra) return parsed.extra.map(e => e.text || '').join('');
+      return reason;
+    }
+    if (typeof reason === 'object') {
+      if (reason.text) return reason.text;
+      if (reason.extra) return reason.extra.map(e => e.text || '').join('');
+      return JSON.stringify(reason); // Hiçbir formata uymazsa olduğu gibi yazdır
+    }
+  } catch (e) {
+    return typeof reason === 'object' ? JSON.stringify(reason) : String(reason);
+  }
+  return String(reason);
+}
+
+// Lobi -> Asıl Sunucu aktarımında botu tamamen donduran kilit sistemi
 function lockBotForTransfer() {
+  if (state.isQueueing) return; // Zaten kilitliyse işlem yapma
   state.isQueueing = true;
-  state.status = "Aktarım/TPA Bekleniyor...";
+  state.status = "Aktarım/Sunucu Geçişi...";
+  
   if (bot) {
     try { bot.clearControlStates(); } catch(e){}
     try { bot.pathfinder.stop(); bot.pathfinder.setGoal(null); } catch(e){}
-    if (bot.physics) bot.physics.enabled = false; // Internal Error engelleyici
+    if (bot.physics) bot.physics.enabled = false; // Hareket paketlerini tamamen kes
   }
   
-  // 5 Saniye sonra fiziği geri aç (sunucu değişimi bitince)
+  // 5 Saniye sonra botu serbest bırak
   setTimeout(() => {
     if (bot && state.isQueueing) {
       if (bot.physics) bot.physics.enabled = true;
       state.isQueueing = false;
       state.status = "Çalışıyor";
-      logChat('[SİSTEM] Aktarım tamamlandı.');
+      logChat('[SİSTEM] Aktarım tamamlandı, fizik aktif.');
     }
   }, 5000);
 }
 
+// Giriş mesajını tespit edip sadece BİR KERE login gönderen sistem
 function checkAutoLogin(msg) {
   const lower = msg.toLowerCase();
-  // AesirMC vb. sunucularda giriş mesajları
-  if (lower.includes('/login') || lower.includes('şifre') || lower.includes('giris yap')) {
+  if ((lower.includes('/login') || lower.includes('şifre') || lower.includes('giris yap')) && !isLoggedIn) {
     if (state.config.password && bot) {
       setTimeout(() => {
         bot.chat(`/login ${state.config.password}`);
         logChat('[SİSTEM] Otomatik /login gönderildi.');
+        isLoggedIn = true; // Spam yapmaması için kilitledik
       }, 1500);
     }
   }
@@ -82,12 +108,14 @@ function startBot(config) {
   state.config = config;
   state.isManualStop = false;
   state.status = "Bağlanıyor...";
+  isLoggedIn = false; // Her bağlandığında sıfırla
   
   bot = mineflayer.createBot({
     host: config.host,
     username: config.username,
     version: config.version || "1.21.11",
-    hideErrors: true
+    hideErrors: true,
+    brand: "vanilla" // Bazı sunucular bunu görmeyince hile sanıp atar
   });
 
   bot.loadPlugin(pathfinder);
@@ -95,21 +123,24 @@ function startBot(config) {
   bot.loadPlugin(collectBlock);
 
   bot.on('spawn', () => {
-    state.status = "Çalışıyor";
-    logChat('[SİSTEM] Dünyaya giriş yapıldı.');
+    state.status = "Doğdu / Çalışıyor";
+    logChat('[SİSTEM] Dünyaya giriş yapıldı (Spawn).');
     if (bot.physics) bot.physics.enabled = true;
     state.isQueueing = false;
   });
 
-  // TPA / Respawn Dondurması (Velocity/BungeeCord geçişleri)
-  bot.on('respawn', lockBotForTransfer);
+  // TPA / Alt Sunucu Değişimlerini Yakala ve Dondur
+  bot.on('respawn', () => {
+    logChat('[SİSTEM] Sunucu değişimi / Respawn algılandı.');
+    lockBotForTransfer();
+  });
   bot.on('forcedMove', lockBotForTransfer);
 
   bot.on('messagestr', (msg) => {
     logChat(msg);
     checkAutoLogin(msg);
     
-    // TPA ve Aktarım Algılama
+    // TPA ve Aktarım Mesajları
     if (msg.includes('Aktarım yapıyorsunuz') || msg.includes('Aktarım başladı') || msg.includes('sırasına girdiniz')) {
       lockBotForTransfer();
     }
@@ -138,20 +169,26 @@ function startBot(config) {
     }
   }, 2000);
 
+  // KICK (Sunucudan Atılma) DURUMUNU OKUMA
   bot.on('kicked', (reason) => {
-    logChat(`[SİSTEM] Atıldı: ${reason}`);
+    const clearReason = parseKickReason(reason);
+    logChat(`[SİSTEM DİREKT ATILMA] Neden: ${clearReason}`);
     handleReconnect();
   });
 
-  bot.on('end', () => {
-    logChat('[SİSTEM] Bağlantı koptu.');
+  bot.on('end', (reason) => {
+    logChat(`[SİSTEM] Bağlantı sonlandı. Neden: ${reason || 'Bilinmiyor'}`);
     handleReconnect();
+  });
+  
+  bot.on('error', (err) => {
+    logChat(`[SİSTEM HATA] ${err.message}`);
   });
 }
 
 function handleReconnect() {
   if (state.isManualStop) return;
-  state.status = "Yeniden Bağlanıyor...";
+  state.status = "Yeniden Bağlanıyor (5s)...";
   setTimeout(() => { if (!state.isManualStop) startBot(state.config); }, 5000);
 }
 
