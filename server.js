@@ -10,7 +10,7 @@ const PORT = process.env.PORT || 3000;
 app.use(express.json());
 app.use(express.static(__dirname));
 
-// 🛡️ CHUNK, PROTOKOL VE PAKET FİLTRESİ
+// 🛡️ SESSİZ PAKET VE ÇÖKME HATA FİLTRESİ
 process.on('uncaughtException', (err) => {
     const msg = err ? err.message || err.toString() : '';
     if (
@@ -36,21 +36,13 @@ let radarText = 'Yakında kimse yok.';
 let ping = '-';
 let tps = '-';
 
-// --- ÇOKLU BOT DEĞİŞKENLERİ ---
-let multiBots = [];
+// --- ÇOKLU BOT DEĞİŞKENLERİ VE YAPISI ---
+let multiBots = []; // { id, username, host, version, customChat, enableMove, enableChat, autoReconnect, instance, status, stoppedExplicitly, moveTimer, chatTimer, reconnectTimer }
 
-let lastProcessedTime = 0;
-function canProcessMessage() {
-    const now = Date.now();
-    if (now - lastProcessedTime < 3500) return false;
-    lastProcessedTime = now;
-    return true;
-}
+const defaultRandomChats = ['sa', 'as', 'selam', 'heyy', 'naber', 'gg', 'kolay gelsin', 'bot degilim', 'mrb'];
 
-// Gelişmiş Minecraft Mesaj Parsörü ([object Object] Hatasını Çözer)
 function cleanText(text) {
     if (!text) return '';
-    
     if (typeof text === 'object') {
         try {
             if (text.toString && typeof text.toString === 'function' && text.toString() !== '[object Object]') {
@@ -59,25 +51,14 @@ function cleanText(text) {
             if (text.extra && Array.isArray(text.extra)) {
                 return text.extra.map(e => cleanText(e)).join('').trim();
             }
-            if (text.text) {
-                return cleanText(text.text);
-            }
-            if (text.value) {
-                return cleanText(text.value);
-            }
+            if (text.text) return cleanText(text.text);
+            if (text.value) return cleanText(text.value);
             return JSON.stringify(text);
-        } catch (e) {
-            return String(text);
-        }
+        } catch (e) { return String(text); }
     }
-
     if (typeof text === 'string' && text.startsWith('{')) {
-        try {
-            const parsed = JSON.parse(text);
-            return cleanText(parsed);
-        } catch (e) {}
+        try { return cleanText(JSON.parse(text)); } catch (e) {}
     }
-
     return String(text).replace(/§[0-9a-fk-or]/gi, '').trim();
 }
 
@@ -98,38 +79,98 @@ function getRandomName(prefix = 'Bot') {
     return `${prefix}_${suffix}`;
 }
 
-async function askGroqAI(userMessage, sender, apiKey) {
-    try {
-        const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-            method: 'POST',
-            headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                model: 'llama-3.3-70b-versatile',
-                messages: [
-                    { role: 'system', content: 'Sen bir Minecraft botusun. Kısa cevap ver.' },
-                    { role: 'user', content: `${sender} dedi ki: ${userMessage}` }
-                ],
-                max_tokens: 100
-            })
-        });
-        const data = await response.json();
-        return data.choices?.[0]?.message?.content || null;
-    } catch (err) { return null; }
+function clearBotTimers(botObj) {
+    if (botObj.moveTimer) clearInterval(botObj.moveTimer);
+    if (botObj.chatTimer) clearInterval(botObj.chatTimer);
+    if (botObj.reconnectTimer) clearTimeout(botObj.reconnectTimer);
+    botObj.moveTimer = null;
+    botObj.chatTimer = null;
+    botObj.reconnectTimer = null;
 }
 
-function updateRadar() {
-    if (!bot || !bot.entity) { radarText = 'Yakında kimse yok.'; return; }
-    const pos = bot.entity.position;
-    const entities = Object.values(bot.entities)
-        .filter(e => e !== bot.entity && e.type === 'player')
-        .map(e => `${cleanText(e.username || 'Oyuncu')} [${Math.round(pos.distanceTo(e.position))}m]`);
-    radarText = entities.length > 0 ? entities.join('\n') : 'Yakında kimse yok.';
+// Çoklu Bot Hareket Döngüsü
+function startBotMovement(botObj) {
+    if (!botObj.enableMove) return;
+    botObj.moveTimer = setInterval(() => {
+        if (!botObj.instance || !botObj.instance.entity) return;
+        const controls = ['forward', 'back', 'left', 'right', 'jump'];
+        const randomControl = controls[Math.floor(Math.random() * controls.length)];
+        
+        try {
+            botObj.instance.setControlState(randomControl, true);
+            setTimeout(() => {
+                if (botObj.instance) botObj.instance.setControlState(randomControl, false);
+            }, 800 + Math.random() * 1200);
+        } catch (e) {}
+    }, 4000 + Math.random() * 4000);
+}
+
+// Çoklu Bot Konuşma Döngüsü
+function startBotChat(botObj) {
+    if (!botObj.enableChat) return;
+    botObj.chatTimer = setInterval(() => {
+        if (!botObj.instance || !botObj.instance.entity) return;
+        const msg = botObj.customChat || defaultRandomChats[Math.floor(Math.random() * defaultRandomChats.length)];
+        try { botObj.instance.chat(msg); } catch (e) {}
+    }, 12000 + Math.random() * 15000);
+}
+
+// Tekil Çoklu Bot Oluşturma ve Bağlama
+function spawnSingleMultiBot(botObj) {
+    if (botObj.stoppedExplicitly) return;
+
+    clearBotTimers(botObj);
+    botObj.status = 'Bağlanıyor...';
+
+    try {
+        const mb = mineflayer.createBot({
+            host: botObj.host || 'play.aesirmc.com',
+            port: 25565,
+            username: botObj.username,
+            version: botObj.version || '1.21.11',
+            fakeHost: botObj.host || 'play.aesirmc.com',
+            checkTimeoutInterval: 120 * 1000,
+            brand: 'vanilla',
+            viewDistance: 'tiny',
+            physicsEnabled: true,
+            hideErrors: true
+        });
+
+        if (mb._client) mb._client.on('error', () => {});
+        botObj.instance = mb;
+
+        mb.once('spawn', () => {
+            botObj.status = 'Bağlı';
+            startBotMovement(botObj);
+            startBotChat(botObj);
+        });
+
+        const handleDisconnect = (reasonText) => {
+            clearBotTimers(botObj);
+            if (botObj.stoppedExplicitly) return;
+
+            if (botObj.autoReconnect) {
+                botObj.status = 'Oto Yeniden Bağlanıyor (5s)...';
+                botObj.reconnectTimer = setTimeout(() => {
+                    spawnSingleMultiBot(botObj);
+                }, 5000 + Math.random() * 3000);
+            } else {
+                botObj.status = reasonText || 'Kapalı';
+            }
+        };
+
+        mb.on('kicked', (reason) => handleDisconnect(`Atıldı: ${cleanText(reason)}`));
+        mb.on('error', () => handleDisconnect('Hata'));
+        mb.on('end', () => handleDisconnect('Bağlantı Kesildi'));
+
+    } catch (e) {
+        botObj.status = 'Başlatma Hatası';
+    }
 }
 
 app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'ui.html')));
 
 app.get('/api/status', (req, res) => {
-    updateRadar();
     if (bot && bot.player) ping = bot.player.ping || '-';
     res.json({
         online: !!(bot && bot.entity),
@@ -145,7 +186,6 @@ app.get('/api/status', (req, res) => {
 app.post('/api/start', (req, res) => {
     const { groqKey, host, username, password, version } = req.body;
     if (bot) { try { bot.end(); } catch (e) {} }
-    const activeGroqKey = groqKey || process.env.GROQ_API_KEY;
 
     botStatus = 'Bağlanıyor...';
     addChatLog('[SİSTEM] Bot başlatılıyor...');
@@ -160,13 +200,11 @@ app.post('/api/start', (req, res) => {
             checkTimeoutInterval: 120 * 1000,
             brand: 'vanilla',
             viewDistance: 'tiny',
-            physicsEnabled: true, // Anti-cheat atmaması için açık kalmalı
+            physicsEnabled: true,
             hideErrors: true
         });
 
-        if (bot._client) {
-            bot._client.on('error', () => {});
-        }
+        if (bot._client) bot._client.on('error', () => {});
 
         bot.loadPlugin(pathfinder);
         bot.loadPlugin(pvp);
@@ -178,37 +216,15 @@ app.post('/api/start', (req, res) => {
         });
 
         bot.on('death', () => setTimeout(() => { try { bot.respawn(); } catch (e) {} }, 1000));
-        bot.on('messagestr', async (message) => {
-            addChatLog(message);
-            if ((message.toLowerCase().includes('register') || message.toLowerCase().includes('kayıt ol')) && password) {
-                setTimeout(() => bot.chat(`/register ${password} ${password}`), 1000);
-            }
-            if ((message.includes('fısıldıyor') || message.includes('whispers')) && canProcessMessage() && activeGroqKey) {
-                const parts = message.split(':');
-                const sender = parts[0] ? parts[0].split(' ')[0] : 'Oyuncu';
-                const text = parts.slice(1).join(':').trim();
-                const aiReply = await askGroqAI(text, sender, activeGroqKey);
-                if (aiReply) bot.chat(`/r ${aiReply}`);
-            }
-        });
-
-        bot.on('kicked', (reason) => { 
-            botStatus = 'Atıldı'; 
-            addChatLog(`[KICK] ${cleanText(reason)}`); 
-        });
-        
+        bot.on('messagestr', (message) => addChatLog(message));
+        bot.on('kicked', (reason) => { botStatus = 'Atıldı'; addChatLog(`[KICK] ${cleanText(reason)}`); });
         bot.on('error', (err) => { 
             const msg = err.message || '';
             if (msg.includes('Read') || msg.includes('partial') || msg.includes('ECONNRESET')) return;
             botStatus = 'Hata'; 
             addChatLog(`[HATA] ${msg}`); 
         });
-        
-        bot.on('end', () => { 
-            botStatus = 'Kapalı'; 
-            addChatLog('[SİSTEM] Bağlantı kesildi.'); 
-        });
-
+        bot.on('end', () => { botStatus = 'Kapalı'; addChatLog('[SİSTEM] Bağlantı kesildi.'); });
     } catch (err) { botStatus = 'Hata'; }
     res.json({ success: true });
 });
@@ -247,39 +263,32 @@ app.get('/api/multibot/status', (req, res) => {
 });
 
 app.post('/api/multibot/start', (req, res) => {
-    const { host, version, count, prefix } = req.body;
-    const botCount = Math.min(Math.max(parseInt(count) || 1, 1), 20);
+    const { host, version, count, prefix, customChat, enableMove, enableChat, autoReconnect } = req.body;
+    const botCount = Math.max(parseInt(count) || 1, 1); // 🛑 SINIR KALDIRILDI!
 
     for (let i = 0; i < botCount; i++) {
         setTimeout(() => {
             const username = getRandomName(prefix || 'Bot');
-            try {
-                const mb = mineflayer.createBot({
-                    host: host || 'play.aesirmc.com',
-                    port: 25565,
-                    username: username,
-                    version: version || '1.21.11',
-                    fakeHost: host || 'play.aesirmc.com',
-                    checkTimeoutInterval: 120 * 1000,
-                    brand: 'vanilla',
-                    viewDistance: 'tiny',
-                    physicsEnabled: true,
-                    hideErrors: true
-                });
+            const botObj = {
+                id: Date.now() + Math.random(),
+                username: username,
+                host: host || 'play.aesirmc.com',
+                version: version || '1.21.11',
+                customChat: customChat || '',
+                enableMove: enableMove !== false,
+                enableChat: enableChat !== false,
+                autoReconnect: autoReconnect !== false,
+                instance: null,
+                status: 'Sıraya Alındı',
+                stoppedExplicitly: false,
+                moveTimer: null,
+                chatTimer: null,
+                reconnectTimer: null
+            };
 
-                if (mb._client) {
-                    mb._client.on('error', () => {});
-                }
-
-                const botObj = { username, instance: mb, status: 'Bağlanıyor...' };
-                multiBots.push(botObj);
-
-                mb.once('spawn', () => { botObj.status = 'Bağlı'; });
-                mb.on('kicked', (reason) => { botObj.status = `Atıldı: ${cleanText(reason)}`; });
-                mb.on('error', () => { botObj.status = 'Hata'; });
-                mb.on('end', () => { botObj.status = 'Kapalı'; });
-            } catch (e) {}
-        }, i * 2000); // 2 saniye arayla sokulur
+            multiBots.push(botObj);
+            spawnSingleMultiBot(botObj);
+        }, i * 1800); // Sunucu ip/rate-limit ban yememek için kademeli giriş
     }
 
     res.json({ success: true });
@@ -287,6 +296,8 @@ app.post('/api/multibot/start', (req, res) => {
 
 app.post('/api/multibot/stop', (req, res) => {
     multiBots.forEach(b => {
+        b.stoppedExplicitly = true;
+        clearBotTimers(b);
         try { if (b.instance) b.instance.end(); } catch (e) {}
     });
     multiBots = [];
