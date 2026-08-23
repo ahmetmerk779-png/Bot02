@@ -7,7 +7,7 @@ const { processAI } = require('./ai');
 let bot = null;
 let isLoggedIn = false;
 let transferTimeout = null; 
-let reconnectTimeout = null; // SPAM GİRİŞ ENGELLEYİCİ
+let reconnectTimeout = null;
 let state = {
   status: "Kapalı", ping: "-", tps: "-",
   chatLogs: [], radar: [],
@@ -43,24 +43,21 @@ function parseKickReason(reason) {
   return String(reason);
 }
 
-function lockBotForTransfer() {
+// YENİ SİSTEM: Bot sadece durumunu kitler, ASLA paket göndermez (Ölü Taklidi)
+function lockBotForTransfer(isLongQueue = false) {
   state.isQueueing = true;
-  state.status = "Aktarım/Sunucu Geçişi...";
-  
-  if (bot) {
-    try { bot.clearControlStates(); } catch(e){}
-    try { bot.pathfinder.stop(); bot.pathfinder.setGoal(null); } catch(e){}
-  }
+  state.status = isLongQueue ? "Sırada / Yapılandırmada..." : "Aktarım Bekleniyor...";
   
   if (transferTimeout) clearTimeout(transferTimeout);
   
+  // Sıra varsa daha uzun bekle (15 sn), normal geçişse (6 sn)
   transferTimeout = setTimeout(() => {
     if (bot && state.isQueueing) {
       state.isQueueing = false;
       state.status = "Çalışıyor";
-      logChat('[SİSTEM] Aktarım/TPA süreci tamamlandı.');
+      logChat('[SİSTEM] Aktarım/Sıra süresi doldu, kilidi açtım.');
     }
-  }, 3000);
+  }, isLongQueue ? 15000 : 6000);
 }
 
 function checkAutoLogin(msg) {
@@ -78,7 +75,7 @@ function checkAutoLogin(msg) {
 
 const botActions = {
   stop: () => {
-    if (bot) {
+    if (bot && !state.isQueueing) { // Geçiş esnasında durdurma komutunu bile engelle
       try { bot.clearControlStates(); } catch(e){}
       try { bot.pathfinder.stop(); bot.pathfinder.setGoal(null); } catch(e){}
       try { bot.pvp.stop(); } catch(e){}
@@ -105,7 +102,6 @@ const botActions = {
 };
 
 function startBot(config) {
-  // ESKİ HAYALET BOT KALINTILARINI TEMİZLE
   if (bot) {
     try { bot.quit(); } catch(e) {}
     bot = null;
@@ -129,22 +125,31 @@ function startBot(config) {
   bot.loadPlugin(collectBlock);
 
   bot.on('spawn', () => {
-    state.status = "Doğdu / Çalışıyor";
-    logChat('[SİSTEM] Dünyaya giriş yapıldı (Spawn).');
-    state.isQueueing = false;
+    // Matruşka sunucularda peş peşe spawn atılabileceği için kilidi anında açmıyoruz.
+    // 2 saniye bekleyip ortalığın durulduğundan emin oluyoruz.
+    setTimeout(() => {
+      if (bot) {
+        state.status = "Doğdu / Çalışıyor";
+        state.isQueueing = false;
+        logChat('[SİSTEM] Dünyaya başarıyla yerleşildi.');
+      }
+    }, 2000);
   });
 
   bot.on('respawn', () => {
-    logChat('[SİSTEM] Sunucu değişimi / Respawn algılandı.');
-    lockBotForTransfer();
+    logChat('[SİSTEM] Sunucu değişimi / Yapılandırma algılandı.');
+    lockBotForTransfer(false);
   });
 
   bot.on('messagestr', (msg) => {
     logChat(msg);
     checkAutoLogin(msg);
     
-    if (msg.includes('Aktarım yapıyorsunuz') || msg.includes('Aktarım başladı') || msg.includes('sırasına girdiniz')) {
-      lockBotForTransfer();
+    // AesirGuard sıra sistemi ve aktarımlarını yakalama
+    if (msg.includes('sırasına girdiniz') || msg.includes('Sıranız:')) {
+      lockBotForTransfer(true); // Uzun kilit (Sıra bekleme)
+    } else if (msg.includes('Aktarım yapıyorsunuz') || msg.includes('Aktarım başladı')) {
+      lockBotForTransfer(false); // Kısa kilit
     }
   });
 
@@ -187,16 +192,10 @@ function startBot(config) {
   });
 }
 
-// ÇİFT GİRİŞİ ENGELLEYEN YENİ RECONNECT SİSTEMİ
 function handleReconnect() {
   if (state.isManualStop) return;
-  
-  // Halihazırda sayan bir yeniden bağlanma sayacı varsa iptal et
   if (reconnectTimeout) clearTimeout(reconnectTimeout);
-  
   state.status = "Yeniden Bağlanıyor (5s)...";
-  
-  // Tek bir temiz sayaç başlat
   reconnectTimeout = setTimeout(() => { 
     if (!state.isManualStop) startBot(state.config); 
   }, 5000); 
@@ -218,7 +217,9 @@ function sendChat(msg) {
 }
 
 function sendAction(action) {
-  if (!bot) return;
+  // Sırada beklerken panelden hareket tuşlarına basılmasını da engelle
+  if (!bot || state.isQueueing) return;
+  
   if (action === 'jump') { bot.setControlState('jump', true); setTimeout(() => bot.setControlState('jump', false), 500); }
   else if (action === 'sneak') bot.setControlState('sneak', !bot.getControlState('sneak'));
   else if (action === 'stop') botActions.stop();
