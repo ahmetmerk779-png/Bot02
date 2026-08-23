@@ -8,6 +8,8 @@ let bot = null;
 let isLoggedIn = false;
 let reconnectTimeout = null;
 let transferTimeout = null;
+let lastMessageTime = 0; // Spam koruması için zamanlayıcı
+
 let state = {
   status: "Kapalı", ping: "-", tps: "-",
   chatLogs: [], radar: [],
@@ -58,18 +60,31 @@ const botActions = {
   follow: (targetName) => {
     if (state.isQueueing || !bot) return;
     botActions.stop();
-    const target = bot.players[targetName]?.entity;
+    
+    // Gelişmiş Hedef Bulma (Prefix'leri ve rütbeleri atlar)
+    const target = Object.values(bot.entities).find(e => 
+      e.type === 'player' && 
+      e.username && 
+      e.username.toLowerCase().includes(targetName.toLowerCase())
+    );
+
     if (target) {
       const mcData = require('minecraft-data')(bot.version);
       const move = new Movements(bot, mcData);
+      move.allow1by1towers = false;
+      move.canDig = false; // İzinsiz blok kırmasın
+      
       bot.pathfinder.setMovements(move);
-      bot.pathfinder.setGoal(new goals.GoalFollow(target, 1), true);
+      bot.pathfinder.setGoal(new goals.GoalFollow(target, 2), true);
+      logChat(`[SİSTEM] Hedef kilitlendi: ${target.username}, peşine düşüldü!`);
+    } else {
+      logChat(`[SİSTEM] ${targetName} radarda yok! Çok uzakta olabilirsin.`);
     }
   },
   attack: (targetName) => {
     if (state.isQueueing || !bot) return;
     botActions.stop();
-    const target = bot.players[targetName]?.entity;
+    const target = Object.values(bot.entities).find(e => e.type === 'player' && e.username && e.username.toLowerCase().includes(targetName.toLowerCase()));
     if (target) bot.pvp.attack(target);
   }
 };
@@ -88,7 +103,6 @@ function lockBotForTransfer(timeoutMs = 20000) {
     if (bot && state.isQueueing) {
       state.isQueueing = false;
       state.status = "Çalışıyor";
-      logChat('[SİSTEM] Sabır süresi doldu, bot tamamen serbest.');
     }
   }, timeoutMs);
 }
@@ -103,7 +117,7 @@ function startBot(config) {
   state.isManualStop = false;
   state.status = "Bağlanıyor...";
   isLoggedIn = false;
-  state.isQueueing = true; // Başlangıçta kilitli başlatıyoruz
+  state.isQueueing = true;
   
   bot = mineflayer.createBot({
     host: config.host,
@@ -114,28 +128,32 @@ function startBot(config) {
     checkTimeoutInterval: 120000
   });
 
+  // Mutlak Spam Koruması (AI çıldırsa bile spam atamaz)
+  const originalChat = bot.chat.bind(bot);
+  bot.chat = (msg) => {
+    const now = Date.now();
+    if (now - lastMessageTime > 3500) { // 3.5 Saniye kuralı
+      originalChat(msg);
+      lastMessageTime = now;
+    } else {
+      logChat(`[SPAM DUVARI] Yutuldu: ${msg}`);
+    }
+  };
+
   if (bot && bot._client) {
     const originalWrite = bot._client.write.bind(bot._client);
     bot._client.write = (name, data) => {
       if (state.isQueueing) {
-        // Bot kilitliyken sunucuya giden tüm hareket, konum ve etkileşim paketlerini tamamen yutuyoruz
         const blockedPackets = [
           'position', 'position_look', 'look', 'flying', 
           'settings', 'client_information', 
           'arm_animation', 'use_item', 'block_place', 'vehicle_move',
           'teleport_confirm', 'steer_vehicle'
         ];
-        
-        if (blockedPackets.includes(name)) {
-          return; 
-        }
+        if (blockedPackets.includes(name)) return; 
       }
       originalWrite(name, data);
     };
-
-    bot._client.on('error', (err) => {
-      logChat(`[PROTOKOL UYARI]: ${err.message}`);
-    });
   }
 
   bot.loadPlugin(pathfinder);
@@ -143,75 +161,70 @@ function startBot(config) {
   bot.loadPlugin(collectBlock);
 
   bot.on('spawn', () => {
-    logChat('[SİSTEM] Dünyaya adım atıldı. Velocity koruması için 8 saniye hareketsiz bekleniyor...');
-    
-    // Doğduktan sonra ilk 8 saniye boyunca hiçbir paket göndermesine izin vermiyoruz
     lockBotForTransfer(8000);
-
-    // Orijinal istemci ayarlarını gecikmeli ve güvenli bir şekilde gönderiyoruz
     setTimeout(() => {
       if (bot && bot._client) {
         try {
           bot._client.write('client_information', {
-            locale: 'en_US',
-            viewDistance: 8,
-            chatMode: 0,
-            chatColors: true,
-            displayedSkinParts: 127,
-            mainHand: 1,
-            enableTextFiltering: false,
-            allowServerListings: true
+            locale: 'en_US', viewDistance: 8, chatMode: 0, chatColors: true,
+            displayedSkinParts: 127, mainHand: 1, enableTextFiltering: false, allowServerListings: true
           });
         } catch(e) {}
       }
     }, 4000);
   });
 
-  bot.on('respawn', () => {
-    logChat('[SİSTEM] Boyut geçişi algılandı, güvenlik duvarı aktif.');
-    lockBotForTransfer(10000);
-  });
-
   bot.on('forcedMove', () => {
     try { bot.clearControlStates(); } catch(e){}
     try { bot.pathfinder.setGoal(null); } catch(e){}
-    
-    if (bot) {
-        bot.physicsEnabled = false;
-        logChat('[SİSTEM] Işınlanma (TPA) koruması: Fizik 3s kilitlendi.');
-
-        setTimeout(() => {
-            if (bot) {
-                bot.physicsEnabled = true;
-                logChat('[SİSTEM] Fizik serbest bırakıldı.');
-            }
-        }, 3000);
-    }
   });
 
-  bot.on('messagestr', (msg) => {
+  bot.on('messagestr', async (msg) => {
     logChat(msg);
     checkAutoLogin(msg);
-    
     const lower = msg.toLowerCase();
     
-    if (lower.includes('sırasına girdiniz') || 
-        lower.includes('aktarım yapıyorsunuz') || 
-        lower.includes('lobi sunucusuna') || 
-        lower.includes('yeniden başlatılıyor')) {
-        
-        logChat('[SİSTEM] Sunucu geçişi! Ağ katmanı kilitlendi.');
+    // Sunucu Aktarım Korumaları
+    if (lower.includes('sırasına girdiniz') || lower.includes('aktarım yapıyorsunuz') || lower.includes('yeniden başlatılıyor')) {
         lockBotForTransfer(15000); 
     } else if (lower.includes('başarıyla giriş') || lower.includes('login succes')) {
-        logChat('[SİSTEM] Giriş onaylandı, stabilizasyon bekleniyor...');
         lockBotForTransfer(8000);
+    }
+
+    // 🔥 ÖZEL MESAJ YAKALAYICI (Sunucunun Özel Formatını Çözer)
+    // Örnek: [Mahmutcanmerk12 -> banyedin] takip et beni
+    const ozelMesajSistemi = msg.match(/\[([a-zA-Z0-9_]+)\s*(?:->|»)\s*([a-zA-Z0-9_]+)\]\s*(.*)/);
+    
+    if (ozelMesajSistemi) {
+      const gonderen = ozelMesajSistemi[1];
+      const alici = ozelMesajSistemi[2];
+      const icerik = ozelMesajSistemi[3];
+
+      // Eğer mesaj bota gelmişse ve gönderen botun kendisi değilse
+      if (alici.toLowerCase() === bot.username.toLowerCase() && gonderen !== bot.username) {
+        logChat(`[ÖZEL YAKALANDI] ${gonderen}: ${icerik}`);
+        const botState = { health: bot.health, position: bot.entity ? bot.entity.position : null, inventory: 'Dolu' };
+        
+        // Yapay zekayı anında tetikle
+        await processAI(bot, botState, gonderen, icerik, state.config.groqKey, botActions, true);
+      }
     }
   });
 
+  // AKILLI CHAT (Adı geçince uyanır)
   bot.on('chat', async (username, message) => {
     if (!username || username === bot.username || state.isQueueing) return;
+    if (!message.toLowerCase().includes(bot.username.toLowerCase())) return;
+
     const botState = { health: bot.health, position: bot.entity ? bot.entity.position : null, inventory: 'Dolu' };
-    await processAI(bot, botState, username, message, state.config.groqKey, botActions);
+    await processAI(bot, botState, username, message, state.config.groqKey, botActions, false);
+  });
+
+  // STANDART FISILTI (Sunucu belki standart format kullanıyordur diye yedek kalkan)
+  bot.on('whisper', async (username, message) => {
+    if (!username || username === bot.username || state.isQueueing) return;
+    const botState = { health: bot.health, position: bot.entity ? bot.entity.position : null, inventory: 'Dolu' };
+    await processAI(bot, botState, username, message, state.config.groqKey, botActions, true);
   });
 
   setInterval(() => {
@@ -226,28 +239,17 @@ function startBot(config) {
   }, 2000);
 
   bot.on('kicked', (reason) => {
-    const clearReason = parseKickReason(reason);
-    logChat(`[SİSTEM ATILMA] Neden: ${clearReason}`);
+    logChat(`[ATILMA] ${parseKickReason(reason)}`);
     handleReconnect();
   });
-
-  bot.on('end', () => {
-    logChat(`[SİSTEM] Bağlantı sonlandı.`);
-    handleReconnect();
-  });
-  
-  bot.on('error', (err) => {
-    logChat(`[SİSTEM HATA] ${err.message}`);
-  });
+  bot.on('end', () => { handleReconnect(); });
 }
 
 function handleReconnect() {
   if (state.isManualStop) return;
   if (reconnectTimeout) clearTimeout(reconnectTimeout);
-  state.status = "Yeniden Bağlanıyor (5s)...";
-  reconnectTimeout = setTimeout(() => { 
-    if (!state.isManualStop) startBot(state.config); 
-  }, 5000); 
+  state.status = "Yeniden Bağlanıyor...";
+  reconnectTimeout = setTimeout(() => { if (!state.isManualStop) startBot(state.config); }, 5000); 
 }
 
 function stopBot() {
@@ -259,7 +261,7 @@ function stopBot() {
 }
 
 function sendChat(msg) {
-  if (bot) { bot.chat(msg); logChat(`[SİZ]: *{msg}*`); }
+  if (bot) { bot.chat(msg); logChat(`[SİZ]: ${msg}`); }
 }
 
 function sendAction(action) {
