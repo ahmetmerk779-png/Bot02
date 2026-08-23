@@ -40,6 +40,7 @@ let tps = '-';
 let multiBots = [];
 
 const defaultRandomChats = ['sa', 'as', 'selam', 'heyy', 'naber', 'gg', 'kolay gelsin', 'bot degilim', 'mrb'];
+const clientBrands = ['vanilla', 'lunarclient:v2.16.0', 'fabric', 'forge'];
 
 function cleanText(text) {
     if (!text) return '';
@@ -88,10 +89,29 @@ function clearBotTimers(botObj) {
     botObj.reconnectTimer = null;
 }
 
+// 🎭 GÜVENLİK DUVARI AŞMA: İNSAN BENZERİ RASTGELE HAREKET & BAKIŞ
+function emulateHumanBehavior(instance) {
+    if (!instance || !instance.entity) return;
+    try {
+        // Rastgele kafa çevirme (Anti-Bot bot tespiti aşımı)
+        const yaw = (Math.random() * 360 - 180) * (Math.PI / 180);
+        const pitch = (Math.random() * 60 - 30) * (Math.PI / 180);
+        instance.look(yaw, pitch, true);
+        
+        // Rastgele kol sallama
+        if (Math.random() > 0.5) {
+            instance.swingArm('right');
+        }
+    } catch (e) {}
+}
+
 function startBotMovement(botObj) {
     if (!botObj.enableMove) return;
     botObj.moveTimer = setInterval(() => {
         if (!botObj.instance || !botObj.instance.entity) return;
+        
+        emulateHumanBehavior(botObj.instance);
+
         const controls = ['forward', 'back', 'left', 'right', 'jump'];
         const randomControl = controls[Math.floor(Math.random() * controls.length)];
         
@@ -99,9 +119,9 @@ function startBotMovement(botObj) {
             botObj.instance.setControlState(randomControl, true);
             setTimeout(() => {
                 if (botObj.instance) botObj.instance.setControlState(randomControl, false);
-            }, 800 + Math.random() * 1200);
+            }, 600 + Math.random() * 1000);
         } catch (e) {}
-    }, 4000 + Math.random() * 4000);
+    }, 3500 + Math.random() * 3000);
 }
 
 function startBotChat(botObj) {
@@ -110,7 +130,7 @@ function startBotChat(botObj) {
         if (!botObj.instance || !botObj.instance.entity) return;
         const msg = botObj.customChat || defaultRandomChats[Math.floor(Math.random() * defaultRandomChats.length)];
         try { botObj.instance.chat(msg); } catch (e) {}
-    }, 12000 + Math.random() * 15000);
+    }, 15000 + Math.random() * 15000);
 }
 
 function spawnSingleMultiBot(botObj) {
@@ -118,6 +138,9 @@ function spawnSingleMultiBot(botObj) {
 
     clearBotTimers(botObj);
     botObj.status = 'Bağlanıyor...';
+
+    // Anti-Bot Koruması: Rastgele Client Brand seçimi
+    const randomBrand = clientBrands[Math.floor(Math.random() * clientBrands.length)];
 
     try {
         const mb = mineflayer.createBot({
@@ -127,8 +150,8 @@ function spawnSingleMultiBot(botObj) {
             version: botObj.version || '1.21.11',
             fakeHost: botObj.host || 'play.aesirmc.com',
             checkTimeoutInterval: 120 * 1000,
-            brand: 'vanilla',
-            viewDistance: 'tiny',
+            brand: randomBrand,
+            viewDistance: 'normal',
             physicsEnabled: true,
             hideErrors: true
         });
@@ -138,6 +161,10 @@ function spawnSingleMultiBot(botObj) {
 
         mb.once('spawn', () => {
             botObj.status = 'Bağlı';
+
+            // Güvenlik duvarını kandırmak için doğar doğmaz insan gibi bakış at
+            setTimeout(() => emulateHumanBehavior(mb), 500);
+
             startBotMovement(botObj);
             startBotChat(botObj);
         });
@@ -147,10 +174,12 @@ function spawnSingleMultiBot(botObj) {
             if (botObj.stoppedExplicitly) return;
 
             if (botObj.autoReconnect) {
-                botObj.status = 'Oto Yeniden Bağlanıyor (5s)...';
+                botObj.status = 'Oto Yeniden Bağlanıyor...';
+                // Anti-Bot ban yememek için değişken zamanlı yeniden bağlanma
+                const reconnectDelay = 6000 + Math.random() * 5000;
                 botObj.reconnectTimer = setTimeout(() => {
                     spawnSingleMultiBot(botObj);
-                }, 5000 + Math.random() * 3000);
+                }, reconnectDelay);
             } else {
                 botObj.status = reasonText || 'Kapalı';
             }
@@ -181,7 +210,7 @@ app.get('/api/status', (req, res) => {
 
 // --- TEKLİ BOT ENDPOINTLERİ ---
 app.post('/api/start', (req, res) => {
-    const { groqKey, host, username, password, version } = req.body;
+    const { host, username, password, version } = req.body;
     if (bot) { try { bot.end(); } catch (e) {} }
 
     botStatus = 'Bağlanıyor...';
@@ -195,8 +224,8 @@ app.post('/api/start', (req, res) => {
             version: version || '1.21.11',
             fakeHost: host || 'play.aesirmc.com',
             checkTimeoutInterval: 120 * 1000,
-            brand: 'vanilla',
-            viewDistance: 'tiny',
+            brand: 'lunarclient:v2.16.0',
+            viewDistance: 'normal',
             physicsEnabled: true,
             hideErrors: true
         });
@@ -209,7 +238,8 @@ app.post('/api/start', (req, res) => {
         bot.once('spawn', () => {
             botStatus = 'Bağlı';
             addChatLog('[SİSTEM] Sunucuya girildi!');
-            if (password) setTimeout(() => bot.chat(`/login ${password}`), 1000);
+            setTimeout(() => emulateHumanBehavior(bot), 600);
+            if (password) setTimeout(() => bot.chat(`/login ${password}`), 1200);
         });
 
         bot.on('death', () => setTimeout(() => { try { bot.respawn(); } catch (e) {} }, 1000));
@@ -264,6 +294,9 @@ app.post('/api/multibot/start', (req, res) => {
     const botCount = Math.max(parseInt(count) || 1, 1);
 
     for (let i = 0; i < botCount; i++) {
+        // Güvenlik Duvarı IP Limiti Aşımı: Giriş sürelerini rastgele (3.5s - 7s) yap
+        const delay = i * (3500 + Math.random() * 3500);
+        
         setTimeout(() => {
             const username = getRandomName(prefix || 'Bot');
             const botObj = {
@@ -285,13 +318,12 @@ app.post('/api/multibot/start', (req, res) => {
 
             multiBots.push(botObj);
             spawnSingleMultiBot(botObj);
-        }, i * 1800);
+        }, delay);
     }
 
     res.json({ success: true });
 });
 
-// ⚡ TÜM ÇOKLU BOTLARA AKTIK KOMUT / MESAJ GÖNDERME TERMINALI
 app.post('/api/multibot/command', (req, res) => {
     const { command } = req.body;
     if (!command) return res.json({ success: false });
