@@ -6,6 +6,7 @@ const { processAI } = require('./ai');
 
 let bot = null;
 let isLoggedIn = false;
+let transferTimeout = null; // SPAM ENGELLEYİCİ ZAMANLAYICI
 let state = {
   status: "Kapalı", ping: "-", tps: "-",
   chatLogs: [], radar: [],
@@ -18,7 +19,6 @@ function logChat(msg) {
   if (state.chatLogs.length > 50) state.chatLogs.shift();
 }
 
-// 1.21 NBT ve JSON yapılarını temiz okuyan güncel çevirmen
 function parseKickReason(reason) {
   if (!reason) return "Bilinmeyen Neden";
   try {
@@ -29,7 +29,6 @@ function parseKickReason(reason) {
       return reason;
     }
     if (typeof reason === 'object') {
-      // Karmaşık NBT (compound) formatını yakala
       if (reason.type === 'compound' && reason.value && reason.value.text && reason.value.text.value) {
         return reason.value.text.value;
       }
@@ -43,19 +42,19 @@ function parseKickReason(reason) {
   return String(reason);
 }
 
-// Fiziği açık bırakarak sadece hedefleri sıfırlayan güvenli TPA kilidi
 function lockBotForTransfer() {
-  if (state.isQueueing) return;
   state.isQueueing = true;
   state.status = "Aktarım/Sunucu Geçişi...";
   
   if (bot) {
     try { bot.clearControlStates(); } catch(e){}
     try { bot.pathfinder.stop(); bot.pathfinder.setGoal(null); } catch(e){}
-    // bot.physics.enabled kapatılmadı! TeleportConfirm paketinin gidebilmesi için açık kalmalı.
   }
   
-  setTimeout(() => {
+  // SPAM ÇÖZÜMÜ: Eğer arkada çalışan bir sayaç varsa onu iptal et
+  if (transferTimeout) clearTimeout(transferTimeout);
+  
+  transferTimeout = setTimeout(() => {
     if (bot && state.isQueueing) {
       state.isQueueing = false;
       state.status = "Çalışıyor";
@@ -64,11 +63,10 @@ function lockBotForTransfer() {
   }, 4000);
 }
 
-// Spam engelleyici ile güvenli Auto-Login
 function checkAutoLogin(msg) {
   const lower = msg.toLowerCase();
   if ((lower.includes('/login') || lower.includes('şifre') || lower.includes('giris yap')) && !isLoggedIn) {
-    isLoggedIn = true; // KİLİDİ ANINDA DEVREYE SOK Kİ İKİNCİ MESAJDA TETİKLENMESİN
+    isLoggedIn = true; 
     if (state.config.password && bot) {
       setTimeout(() => {
         bot.chat(`/login ${state.config.password}`);
@@ -110,7 +108,7 @@ function startBot(config) {
   state.config = config;
   state.isManualStop = false;
   state.status = "Bağlanıyor...";
-  isLoggedIn = false; // Her bağlantıda login kilidini sıfırla
+  isLoggedIn = false;
   
   bot = mineflayer.createBot({
     host: config.host,
@@ -134,6 +132,7 @@ function startBot(config) {
     logChat('[SİSTEM] Sunucu değişimi / Respawn algılandı.');
     lockBotForTransfer();
   });
+  
   bot.on('forcedMove', lockBotForTransfer);
 
   bot.on('messagestr', (msg) => {
@@ -194,6 +193,7 @@ function stopBot() {
   state.isManualStop = true;
   state.status = "Kapalı";
   if (bot) { bot.quit(); bot = null; }
+  if (transferTimeout) clearTimeout(transferTimeout);
 }
 
 function sendChat(msg) {
