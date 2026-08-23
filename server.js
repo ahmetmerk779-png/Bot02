@@ -47,27 +47,46 @@ function canProcessMessage() {
     return true;
 }
 
+// Gelişmiş Minecraft Mesaj Parsörü ([object Object] Hatasını Çözer)
 function cleanText(text) {
     if (!text) return '';
+    
     if (typeof text === 'object') {
         try {
-            if (text.text) text = text.text;
-            else if (text.value) text = text.value;
-            else text = JSON.stringify(text);
-        } catch (e) { text = String(text); }
+            if (text.toString && typeof text.toString === 'function' && text.toString() !== '[object Object]') {
+                return text.toString().replace(/§[0-9a-fk-or]/gi, '').trim();
+            }
+            if (text.extra && Array.isArray(text.extra)) {
+                return text.extra.map(e => cleanText(e)).join('').trim();
+            }
+            if (text.text) {
+                return cleanText(text.text);
+            }
+            if (text.value) {
+                return cleanText(text.value);
+            }
+            return JSON.stringify(text);
+        } catch (e) {
+            return String(text);
+        }
     }
+
     if (typeof text === 'string' && text.startsWith('{')) {
         try {
             const parsed = JSON.parse(text);
-            text = parsed.text || parsed.value || text;
+            return cleanText(parsed);
         } catch (e) {}
     }
+
     return String(text).replace(/§[0-9a-fk-or]/gi, '').trim();
 }
 
 function addChatLog(msg) {
-    chatLogs.push(cleanText(msg));
-    if (chatLogs.length > 50) chatLogs.shift();
+    const cleaned = cleanText(msg);
+    if (cleaned) {
+        chatLogs.push(cleaned);
+        if (chatLogs.length > 50) chatLogs.shift();
+    }
 }
 
 function getRandomName(prefix = 'Bot') {
@@ -141,7 +160,7 @@ app.post('/api/start', (req, res) => {
             checkTimeoutInterval: 120 * 1000,
             brand: 'vanilla',
             viewDistance: 'tiny',
-            physicsEnabled: false,
+            physicsEnabled: true, // Anti-cheat atmaması için açık kalmalı
             hideErrors: true
         });
 
@@ -155,8 +174,7 @@ app.post('/api/start', (req, res) => {
         bot.once('spawn', () => {
             botStatus = 'Bağlı';
             addChatLog('[SİSTEM] Sunucuya girildi!');
-            setTimeout(() => { if (bot && bot.physics) bot.physics.enabled = true; }, 3500);
-            if (password) setTimeout(() => bot.chat(`/login ${password}`), 1500);
+            if (password) setTimeout(() => bot.chat(`/login ${password}`), 1000);
         });
 
         bot.on('death', () => setTimeout(() => { try { bot.respawn(); } catch (e) {} }, 1000));
@@ -174,14 +192,23 @@ app.post('/api/start', (req, res) => {
             }
         });
 
-        bot.on('kicked', (reason) => { botStatus = 'Atıldı'; addChatLog(`[KICK] ${cleanText(reason)}`); });
+        bot.on('kicked', (reason) => { 
+            botStatus = 'Atıldı'; 
+            addChatLog(`[KICK] ${cleanText(reason)}`); 
+        });
+        
         bot.on('error', (err) => { 
             const msg = err.message || '';
             if (msg.includes('Read') || msg.includes('partial') || msg.includes('ECONNRESET')) return;
             botStatus = 'Hata'; 
             addChatLog(`[HATA] ${msg}`); 
         });
-        bot.on('end', () => { botStatus = 'Kapalı'; addChatLog('[SİSTEM] Bağlantı kesildi.'); });
+        
+        bot.on('end', () => { 
+            botStatus = 'Kapalı'; 
+            addChatLog('[SİSTEM] Bağlantı kesildi.'); 
+        });
+
     } catch (err) { botStatus = 'Hata'; }
     res.json({ success: true });
 });
@@ -236,7 +263,7 @@ app.post('/api/multibot/start', (req, res) => {
                     checkTimeoutInterval: 120 * 1000,
                     brand: 'vanilla',
                     viewDistance: 'tiny',
-                    physicsEnabled: false,
+                    physicsEnabled: true,
                     hideErrors: true
                 });
 
@@ -248,11 +275,11 @@ app.post('/api/multibot/start', (req, res) => {
                 multiBots.push(botObj);
 
                 mb.once('spawn', () => { botObj.status = 'Bağlı'; });
-                mb.on('kicked', () => { botObj.status = 'Atıldı'; });
+                mb.on('kicked', (reason) => { botObj.status = `Atıldı: ${cleanText(reason)}`; });
                 mb.on('error', () => { botObj.status = 'Hata'; });
                 mb.on('end', () => { botObj.status = 'Kapalı'; });
             } catch (e) {}
-        }, i * 1500);
+        }, i * 2000); // 2 saniye arayla sokulur
     }
 
     res.json({ success: true });
