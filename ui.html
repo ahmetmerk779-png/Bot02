@@ -35,12 +35,13 @@
         .btn-cancel { background: #f87171; color: #7f1d1d; }
         .btn-attack { background: #fb923c; color: #4c1d95; width: 100%; padding: 10px; font-size: 0.85rem; }
 
-        .console-box { background: #141829; border: 1px solid #2a314d; border-radius: 6px; padding: 10px; height: 120px; overflow-y: auto; font-size: 0.8rem; font-family: monospace; color: #94a3b8; }
+        .console-box { background: #141829; border: 1px solid #2a314d; border-radius: 6px; padding: 10px; height: 120px; overflow-y: auto; font-size: 0.8rem; font-family: monospace; color: #94a3b8; word-break: break-word; }
         
         .chat-input-bar { display: flex; gap: 8px; }
         .btn-send { background: #818cf8; color: #1e1b4b; width: 80px; padding: 10px; }
 
-        .radar-box { background: #141829; border: 1px solid #2a314d; border-radius: 6px; padding: 10px; height: 70px; font-size: 0.8rem; font-family: monospace; color: #4ade80; white-space: pre-wrap; }
+        /* Radar Kutusu Taşma Düzeltmesi */
+        .radar-box { background: #141829; border: 1px solid #2a314d; border-radius: 6px; padding: 10px; height: 110px; overflow-y: auto; font-size: 0.8rem; font-family: monospace; color: #4ade80; white-space: pre-wrap; word-break: break-all; }
     </style>
 </head>
 <body>
@@ -142,7 +143,8 @@
                 }
                 
                 if (data.radar) {
-                    document.getElementById('radar').innerText = data.radar;
+                    const radarBox = document.getElementById('radar');
+                    radarBox.innerText = data.radar;
                 }
             } catch (e) {}
         }
