@@ -2,7 +2,7 @@ const Groq = require('groq-sdk');
 
 async function processAI(bot, botState, username, message, groqKey, botActions, isWhisper = false) {
   if (!groqKey) {
-    bot.chat(`Selam ${username}, Groq API anahtarım yok!`);
+    bot.chat(`Selam ${username}, API anahtarım olmadığı için beynim şu an çevrimdışı!`);
     return;
   }
 
@@ -13,17 +13,21 @@ async function processAI(bot, botState, username, message, groqKey, botActions, 
 Sen Minecraft'ta ${bot.username} adlı, ${username} ile birlikte oynayan tam otonom bir oyuncu botusun.
 ${isWhisper ? "Bu mesaj sana ÖZEL MESAJ (whisper/msg) olarak gönderildi." : "Bu mesaj genel sohbette sana yazıldı."}
 
-Elindeki yetenekler:
-- Takip etmek için: botActions.follow("${username}")
-- Durdurmak için: botActions.stop()
-- Zıplamak için: bot.setControlState('jump', true); setTimeout(() => bot.setControlState('jump', false), 500);
-- Eğilmek için: bot.setControlState('sneak', true/false);
+Senin arkanda çalışan güçlü eklentiler (Pathfinder ve PvP) var. Kullanıcının isteğini analiz et ve ne yapman gerektiğine karar ver.
 
-Kullanıcının isteğini analiz et ve yanıtını kesinlikle şu JSON formatında ver, başka hiçbir şey yazma:
+Elindeki eylemler:
+- "FOLLOW": Kullanıcı onu takip etmeni isterse. (Pathfinder devreye girer)
+- "STOP": Kullanıcı durmanı, iptal etmeni isterse.
+- "JUMP": Zıplamanı isterse.
+- "SNEAK": Eğilmeni isterse.
+- "ATTACK": Kullanıcı senden başka bir oyuncuya veya canavara saldırmanı, onu dövmeni, öldürmeni isterse. (Hedefin adını algıla)
+- "NONE": Sadece sohbet ediyorsa.
+
+Yanıtını kesinlikle şu JSON formatında ver, ekstra hiçbir şey yazma:
 {
-  "response": "Oyuncuya vereceğin samimi Türkçe cevap",
-  "actionType": "FOLLOW", "STOP", "JUMP", "SNEAK" veya "NONE",
-  "target": "${username}"
+  "response": "Oyuncuya vereceğin samimi, insansı Türkçe cevap",
+  "actionType": "FOLLOW", "STOP", "JUMP", "SNEAK", "ATTACK" veya "NONE",
+  "target": "Eğer FOLLOW ise '${username}', eğer ATTACK ise saldırmanı istediği kişinin adı, yoksa boş bırak"
 }
     `;
 
@@ -43,7 +47,7 @@ Kullanıcının isteğini analiz et ve yanıtını kesinlikle şu JSON formatın
     
     const parsed = JSON.parse(jsonMatch[0]);
 
-    // Yanıtı iletme (Eğer özel mesajsa özelden, değilse normal chatten cevap verebilir veya her ikisi de ayarlanabilir)
+    // 1. Sohbete Cevap Ver (Özel mesajsa özelden)
     if (parsed.response) {
       if (isWhisper) {
         bot.chat(`/msg ${username} ${parsed.response}`);
@@ -52,11 +56,11 @@ Kullanıcının isteğini analiz et ve yanıtını kesinlikle şu JSON formatın
       }
     }
 
-    // Eylemi gerçekleştir
+    // 2. Mekanikleri ve Eklentileri Tetikle!
     setTimeout(() => {
       switch (parsed.actionType) {
         case "FOLLOW":
-          botActions.follow(parsed.target);
+          botActions.follow(parsed.target || username);
           break;
         case "STOP":
           botActions.stop();
@@ -67,6 +71,11 @@ Kullanıcının isteğini analiz et ve yanıtını kesinlikle şu JSON formatın
           break;
         case "SNEAK":
           bot.setControlState('sneak', !bot.getControlState('sneak'));
+          break;
+        case "ATTACK":
+          if (parsed.target) {
+            botActions.attack(parsed.target);
+          }
           break;
       }
     }, 1000);
