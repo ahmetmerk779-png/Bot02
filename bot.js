@@ -1,7 +1,6 @@
 const mineflayer = require('mineflayer');
 const { pathfinder } = require('mineflayer-pathfinder');
 const pvp = require('mineflayer-pvp').plugin;
-const { SocksProxyAgent } = require('socks-proxy-agent');
 
 // Modüler mimari bileşenleri
 const { parseWhisper, canProcessMessage, handleAutoLogin } = require('./src/guards');
@@ -14,18 +13,10 @@ const botOptions = {
     username: process.env.MC_USERNAME || 'OtonomBot',
     version: '1.21.11',
     
-    // Velocity / Anti-Bot Koruma Aşma Ayarları
+    // Velocity / Sunucu Korumasını Aşma Ayarları
     fakeHost: process.env.MC_HOST || 'play.aesirmc.com', // Sunucu proxy'sini gerçek oyuncu gibi kandırır
-    checkTimeoutInterval: 60 * 1000                      // Bağlantı kopmalarını ve zamanaşımı banlarını önler
+    checkTimeoutInterval: 60 * 1000                      // Zamanaşımı düşmelerini önler
 };
-
-// SOCKS5 Proxy Desteği
-if (process.env.PROXY_HOST && process.env.PROXY_PORT) {
-    const auth = process.env.PROXY_USER ? `${process.env.PROXY_USER}:${process.env.PROXY_PASS}@` : '';
-    const proxyUrl = `socks5://${auth}${process.env.PROXY_HOST}:${process.env.PROXY_PORT}`;
-    botOptions.agent = new SocksProxyAgent(proxyUrl);
-    console.log(`[KORUMA] SOCKS5 Proxy bağlandı: ${process.env.PROXY_HOST}:${process.env.PROXY_PORT}`);
-}
 
 console.log("[SİSTEM] Otonom Ajan Başlatılıyor... (Sürüm: 1.21.11)");
 const bot = mineflayer.createBot(botOptions);
