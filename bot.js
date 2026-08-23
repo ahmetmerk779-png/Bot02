@@ -147,21 +147,18 @@ function startBot(config) {
     lockBotForTransfer(8000);
   });
 
-  // 🚀 YENİ TPA KORUMASI: Işınlanma anında fizik motorunu tamamen kapatarak hatalı paket üretimini engelle!
   bot.on('forcedMove', () => {
     try { bot.clearControlStates(); } catch(e){}
     try { bot.pathfinder.setGoal(null); } catch(e){}
     
-    // Hatalı paketleri önlemek için fizik motorunun fişini çek
     if (bot) {
         bot.physicsEnabled = false;
-        logChat('[SİSTEM] TPA algılandı. Hatalı paketleri önlemek için fizik motoru 2s kapatıldı.');
+        logChat('[SİSTEM] TPA algılandı. Fizik motoru 2s kapatıldı.');
 
-        // 2 saniye sonra her şey normale dönünce fiziği geri ver
         setTimeout(() => {
             if (bot) {
                 bot.physicsEnabled = true;
-                logChat('[SİSTEM] Işınlanma tamamlandı, fizik geri açıldı.');
+                logChat('[SİSTEM] Fizik geri açıldı.');
             }
         }, 2000);
     }
@@ -186,8 +183,9 @@ function startBot(config) {
     }
   });
 
+  // 🛡️ GÜVENLİ CHAT DİNLEYİCİSİ (Null Pointer / username çökmelerine son)
   bot.on('chat', async (username, message) => {
-    if (username === bot.username || state.isQueueing) return;
+    if (!username || username === bot.username || state.isQueueing) return;
     const botState = { health: bot.health, position: bot.entity ? bot.entity.position : null, inventory: 'Dolu' };
     await processAI(bot, botState, username, message, state.config.groqKey, botActions);
   });
