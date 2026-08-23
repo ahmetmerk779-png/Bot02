@@ -10,7 +10,7 @@ const PORT = process.env.PORT || 3000;
 app.use(express.json());
 app.use(express.static(__dirname));
 
-// 🛡️ CHUNK, PROTOKOL VE YAKALANMAYAN PAKET HATA FİLTRESİ
+// 🛡️ CHUNK, PROTOKOL VE PAKET FİLTRESİ
 process.on('uncaughtException', (err) => {
     const msg = err ? err.message || err.toString() : '';
     if (
@@ -21,7 +21,7 @@ process.on('uncaughtException', (err) => {
         msg.includes('ECONNRESET') ||
         msg.includes('partial packet')
     ) {
-        return; // Paket okuma hatalarını sessizce yut
+        return;
     }
     console.error('[SİSTEM HAKİKİ HATA]', err);
 });
@@ -142,14 +142,11 @@ app.post('/api/start', (req, res) => {
             brand: 'vanilla',
             viewDistance: 'tiny',
             physicsEnabled: false,
-            hideErrors: true // Protocol ayrıştırma hatalarını konsola basmaz
+            hideErrors: true
         });
 
-        // Alt Seviye Paket Okuma Hata Filtresi
         if (bot._client) {
-            bot._client.on('error', (err) => {
-                // partial packet / chunk size hatalarını görmezden gel
-            });
+            bot._client.on('error', () => {});
         }
 
         bot.loadPlugin(pathfinder);
