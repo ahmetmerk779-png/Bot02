@@ -87,7 +87,7 @@ function lockBotForTransfer(timeoutMs = 15000) {
     if (bot && state.isQueueing) {
       state.isQueueing = false;
       state.status = "Çalışıyor";
-      logChat('[SİSTEM] Bekleme süresi doldu, protokol kararlı.');
+      logChat('[SİSTEM] Bekleme süresi doldu, duvar açıldı.');
     }
   }, timeoutMs);
 }
@@ -104,24 +104,26 @@ function startBot(config) {
   isLoggedIn = false;
   state.isQueueing = true; 
   
+  // 🛡️ VANILLA İSTEMCİ MASKeleme (Velocity'yi kandırmak için)
   bot = mineflayer.createBot({
     host: config.host,
     username: config.username,
     version: config.version || "1.21.11",
     hideErrors: true,
+    // Sunucuya orijinal istemci gibi görünmek için brand bilgisini vanilla yapıyoruz
+    brand: 'vanilla',
+    checkTimeoutInterval: 60000 // Sunucu gecikmelerinden dolayı erken kopmayı engellemek için timeout süresini uzatıyoruz
   });
 
-  // 🛡️ PROTOCOL SEVİYESİNDE INTERNAL ERROR KORUYUCU ZIRH 🛡️
   if (bot && bot._client) {
     const originalWrite = bot._client.write.bind(bot._client);
     bot._client.write = (name, data) => {
-      // Sunucunun protokolünü patlatabilecek tüm şüpheli hareket ve istemci bilgi paketlerini kes
       if (state.isQueueing) {
         const unsafePackets = [
           'position', 'position_look', 'look', 'flying', 
           'settings', 'client_information', 
           'arm_animation', 'use_item', 'block_place', 'vehicle_move',
-          'teleport_confirm' // Internal error tetiklememesi için ilk anda onay paketini de susturuyoruz
+          'teleport_confirm'
         ];
         
         if (unsafePackets.includes(name)) {
@@ -131,9 +133,7 @@ function startBot(config) {
       originalWrite(name, data);
     };
 
-    // Sunucudan gelen gelen ham paket hatalarını yakala ve yut ki bot çökmüş gibi davranmasın
     bot._client.on('error', (err) => {
-      // Protokol seviyesi uyarılarını logla ama botu düşürme
       logChat(`[PROTOKOL UYARI]: ${err.message}`);
     });
   }
@@ -143,18 +143,18 @@ function startBot(config) {
   bot.loadPlugin(collectBlock);
 
   bot.on('spawn', () => {
-    logChat('[SİSTEM] Protokol kararlı, dünyaya giriş yapıldı.');
+    logChat('[SİSTEM] Dünyaya ayak basıldı, maskeleme aktif.');
     setTimeout(() => {
       if (bot) {
         state.status = "Doğdu / Çalışıyor";
         state.isQueueing = false; 
-        logChat('[SİSTEM] Güvenlik duvarı indirildi, bot tam yetkili.');
+        logChat('[SİSTEM] Güvenlik duvarı indirildi, bot serbest.');
       }
     }, 4000);
   });
 
   bot.on('respawn', () => {
-    logChat('[SİSTEM] Boyut/Sunucu geçişi! Protokol kilitlendi.');
+    logChat('[SİSTEM] Boyut geçişi! Güvenlik duvarı aktif.');
     lockBotForTransfer(8000);
   });
 
@@ -164,12 +164,12 @@ function startBot(config) {
     
     if (bot) {
         bot.physicsEnabled = false;
-        logChat('[SİSTEM] Işınlanma algılandı, protokol stabilitesi için fizik 2s askıda.');
+        logChat('[SİSTEM] Işınlanma algılandı, fizik 2s askıda.');
 
         setTimeout(() => {
             if (bot) {
                 bot.physicsEnabled = true;
-                logChat('[SİSTEM] Fizik ve protokol senkronize edildi.');
+                logChat('[SİSTEM] Fizik geri açıldı.');
             }
         }, 2000);
     }
@@ -186,10 +186,10 @@ function startBot(config) {
         lower.includes('lobi sunucusuna') || 
         lower.includes('yeniden başlatılıyor')) {
         
-        logChat('[SİSTEM] Sunucu aktarımı algılandı, protokol kilitleniyor!');
+        logChat('[SİSTEM] Acil durum veya sahte bakım tespit edildi, ağ kilitleniyor!');
         lockBotForTransfer(25000); 
     } else if (lower.includes('başarıyla giriş') || lower.includes('login succes')) {
-        logChat('[SİSTEM] Giriş başarılı, protokol sabitleniyor...');
+        logChat('[SİSTEM] Şifre onaylandı, ağ katmanı kilitleniyor...');
         lockBotForTransfer(10000);
     }
   });
