@@ -61,7 +61,7 @@ const botActions = {
     if (state.isQueueing || !bot) return;
     botActions.stop();
     
-    // Gelişmiş Hedef Bulma (Prefix'leri ve rütbeleri atlar)
+    // Gelişmiş Hedef Bulma
     const target = Object.values(bot.entities).find(e => 
       e.type === 'player' && 
       e.username && 
@@ -72,13 +72,13 @@ const botActions = {
       const mcData = require('minecraft-data')(bot.version);
       const move = new Movements(bot, mcData);
       move.allow1by1towers = false;
-      move.canDig = false; // İzinsiz blok kırmasın
+      move.canDig = false; 
       
       bot.pathfinder.setMovements(move);
       bot.pathfinder.setGoal(new goals.GoalFollow(target, 2), true);
       logChat(`[SİSTEM] Hedef kilitlendi: ${target.username}, peşine düşüldü!`);
     } else {
-      logChat(`[SİSTEM] ${targetName} radarda yok! Çok uzakta olabilirsin.`);
+      logChat(`[SİSTEM] ${targetName} radarda yok!`);
     }
   },
   attack: (targetName) => {
@@ -128,33 +128,40 @@ function startBot(config) {
     checkTimeoutInterval: 120000
   });
 
-  // Mutlak Spam Koruması (AI çıldırsa bile spam atamaz)
-  const originalChat = bot.chat.bind(bot);
-  bot.chat = (msg) => {
-    const now = Date.now();
-    if (now - lastMessageTime > 3500) { // 3.5 Saniye kuralı
-      originalChat(msg);
-      lastMessageTime = now;
-    } else {
-      logChat(`[SPAM DUVARI] Yutuldu: ${msg}`);
+  // 🛡️ MOTOR YÜKLENDİKTEN SONRA KALKANLARI AKTİF ET
+  bot.on('inject_allowed', () => {
+    
+    // 1. Ağ paketi koruması (Velocity İçin)
+    if (bot && bot._client) {
+      const originalWrite = bot._client.write.bind(bot._client);
+      bot._client.write = (name, data) => {
+        if (state.isQueueing) {
+          const blockedPackets = [
+            'position', 'position_look', 'look', 'flying', 
+            'settings', 'client_information', 
+            'arm_animation', 'use_item', 'block_place', 'vehicle_move',
+            'teleport_confirm', 'steer_vehicle'
+          ];
+          if (blockedPackets.includes(name)) return; 
+        }
+        originalWrite(name, data);
+      };
     }
-  };
 
-  if (bot && bot._client) {
-    const originalWrite = bot._client.write.bind(bot._client);
-    bot._client.write = (name, data) => {
-      if (state.isQueueing) {
-        const blockedPackets = [
-          'position', 'position_look', 'look', 'flying', 
-          'settings', 'client_information', 
-          'arm_animation', 'use_item', 'block_place', 'vehicle_move',
-          'teleport_confirm', 'steer_vehicle'
-        ];
-        if (blockedPackets.includes(name)) return; 
-      }
-      originalWrite(name, data);
-    };
-  }
+    // 2. Mutlak Spam Koruması (AI çıldırsa bile spam atamaz)
+    if (typeof bot.chat === 'function') {
+      const originalChat = bot.chat.bind(bot);
+      bot.chat = (msg) => {
+        const now = Date.now();
+        if (now - lastMessageTime > 3500) { 
+          originalChat(msg);
+          lastMessageTime = now;
+        } else {
+          logChat(`[SPAM DUVARI] Yutuldu: ${msg}`);
+        }
+      };
+    }
+  });
 
   bot.loadPlugin(pathfinder);
   bot.loadPlugin(pvp);
@@ -184,15 +191,13 @@ function startBot(config) {
     checkAutoLogin(msg);
     const lower = msg.toLowerCase();
     
-    // Sunucu Aktarım Korumaları
     if (lower.includes('sırasına girdiniz') || lower.includes('aktarım yapıyorsunuz') || lower.includes('yeniden başlatılıyor')) {
         lockBotForTransfer(15000); 
     } else if (lower.includes('başarıyla giriş') || lower.includes('login succes')) {
         lockBotForTransfer(8000);
     }
 
-    // 🔥 ÖZEL MESAJ YAKALAYICI (Sunucunun Özel Formatını Çözer)
-    // Örnek: [Mahmutcanmerk12 -> banyedin] takip et beni
+    // 🔥 ÖZEL MESAJ YAKALAYICI (AesirMC Formatı)
     const ozelMesajSistemi = msg.match(/\[([a-zA-Z0-9_]+)\s*(?:->|»)\s*([a-zA-Z0-9_]+)\]\s*(.*)/);
     
     if (ozelMesajSistemi) {
@@ -200,18 +205,14 @@ function startBot(config) {
       const alici = ozelMesajSistemi[2];
       const icerik = ozelMesajSistemi[3];
 
-      // Eğer mesaj bota gelmişse ve gönderen botun kendisi değilse
       if (alici.toLowerCase() === bot.username.toLowerCase() && gonderen !== bot.username) {
         logChat(`[ÖZEL YAKALANDI] ${gonderen}: ${icerik}`);
         const botState = { health: bot.health, position: bot.entity ? bot.entity.position : null, inventory: 'Dolu' };
-        
-        // Yapay zekayı anında tetikle
         await processAI(bot, botState, gonderen, icerik, state.config.groqKey, botActions, true);
       }
     }
   });
 
-  // AKILLI CHAT (Adı geçince uyanır)
   bot.on('chat', async (username, message) => {
     if (!username || username === bot.username || state.isQueueing) return;
     if (!message.toLowerCase().includes(bot.username.toLowerCase())) return;
@@ -220,7 +221,6 @@ function startBot(config) {
     await processAI(bot, botState, username, message, state.config.groqKey, botActions, false);
   });
 
-  // STANDART FISILTI (Sunucu belki standart format kullanıyordur diye yedek kalkan)
   bot.on('whisper', async (username, message) => {
     if (!username || username === bot.username || state.isQueueing) return;
     const botState = { health: bot.health, position: bot.entity ? bot.entity.position : null, inventory: 'Dolu' };
