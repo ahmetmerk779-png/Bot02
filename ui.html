@@ -103,9 +103,9 @@
 
         <!-- 1. BÖLÜM: TEKLİ BOT -->
         <div id="viewSingle" class="view">
-            <input type="text" id="host" value="play.aesirmc.com" placeholder="Sunucu Adresi">
+            <input type="text" id="host" value="" placeholder="Sunucu IP Adresi Girin (Örn: play.örnek.com)">
             <input type="text" id="username" placeholder="Bot İsmi (Örn: OtonomBot)">
-            <input type="password" id="password" placeholder="Şifre (/login)">
+            <input type="password" id="password" placeholder="Şifre (/login & /register)">
             <input type="text" id="version" value="1.21.11" placeholder="Sürüm (1.21.11)">
 
             <div class="btn-group">
@@ -143,11 +143,11 @@
 
         <!-- 2. BÖLÜM: ÇOKLU BOT -->
         <div id="viewMulti" class="view hidden">
-            <input type="text" id="mHost" value="play.aesirmc.com" placeholder="Sunucu Adresi">
+            <input type="text" id="mHost" value="" placeholder="Sunucu IP Adresi Girin (Örn: play.örnek.com)">
             <input type="text" id="mVersion" value="1.21.11" placeholder="Sürüm (1.21.11)">
             <input type="text" id="mPrefix" value="Bot" placeholder="Bot İsim Ön Eki (Örn: Bot)">
-            <input type="password" id="mPassword" placeholder="Bot Otomatik Şifre (/login & /register)">
-            <input type="number" id="mCount" value="10" placeholder="Bot Sayısı (Sınırsız)">
+            <input type="password" id="mPassword" placeholder="Bot Şifresi (/login & /register)">
+            <input type="number" id="mCount" value="10" placeholder="Bot Sayısı">
             <input type="text" id="mCustomChat" placeholder="Sohbet Mesajı (Boşsa rastgele atar)">
 
             <div class="checkbox-group">
@@ -173,7 +173,6 @@
                 <div class="stat-item"><label>ATILAN/HATA</label><val id="mFailed" style="color:#f87171">0</val></div>
             </div>
 
-            <!-- Toplu Aksiyon Butonları -->
             <div class="section-label">Toplu Hızlı Aksiyonlar</div>
             <div class="quick-cmds-row">
                 <button class="btn btn-cmd" onclick="sendMultiAction('jump')">Toplu Zıpla</button>
@@ -181,14 +180,12 @@
                 <button class="btn btn-cmd btn-cancel" onclick="sendMultiAction('respawn')">Toplu Respawn</button>
             </div>
 
-            <!-- Toplu Terminal / Komut Gönderme Barı -->
             <div class="section-label">Toplu Terminal (Hepsine Gönder)</div>
             <form class="chat-input-bar" onsubmit="sendMultiCommand(event)">
                 <input type="text" id="mCommandMsg" placeholder="Tüm botlara komut/mesaj (Örn: /spawn)" autocomplete="off">
                 <button type="submit" class="btn btn-send">Gönder</button>
             </form>
 
-            <!-- Canlı Terminal & Hata Log Ekranı -->
             <div class="section-label">Canlı Sistem Log Terminali</div>
             <div class="terminal-box" id="terminalLogs">Loglar bekleniyor...</div>
 
@@ -232,8 +229,13 @@
         }
 
         async function startBot() {
+            const hostVal = document.getElementById('host').value.trim();
+            if(!hostVal) {
+                alert("Lütfen bir sunucu IP adresi girin!");
+                return;
+            }
             const data = {
-                host: document.getElementById('host').value,
+                host: hostVal,
                 username: document.getElementById('username').value,
                 password: document.getElementById('password').value,
                 version: document.getElementById('version').value
@@ -256,8 +258,13 @@
         }
 
         async function startMultiBots() {
+            const hostVal = document.getElementById('mHost').value.trim();
+            if(!hostVal) {
+                alert("Lütfen bir sunucu IP adresi girin!");
+                return;
+            }
             const data = {
-                host: document.getElementById('mHost').value,
+                host: hostVal,
                 version: document.getElementById('mVersion').value,
                 prefix: document.getElementById('mPrefix').value,
                 password: document.getElementById('mPassword').value,
@@ -288,7 +295,6 @@
 
         async function updateStatus() {
             try {
-                // Tekli Bot Verisi
                 const res = await fetch('/api/status');
                 const data = await res.json();
                 document.getElementById('status').innerText = data.statusText || (data.online ? 'Bağlı' : 'Kapalı');
@@ -302,18 +308,15 @@
                 }
                 if (data.radar) document.getElementById('radar').innerText = data.radar;
 
-                // Çoklu Bot Verisi
                 const mRes = await fetch('/api/multibot/status');
                 const mData = await mRes.json();
                 
-                // İstatistik Güncelleme
                 if (mData.stats) {
                     document.getElementById('mConnected').innerText = mData.stats.connected;
                     document.getElementById('mConnecting').innerText = mData.stats.connecting;
                     document.getElementById('mFailed').innerText = mData.stats.failed;
                 }
 
-                // Bot Listesi Güncelleme
                 if (mData.bots && mData.bots.length > 0) {
                     document.getElementById('multiBotList').innerHTML = mData.bots.map(b => 
                         `<div class="bot-item"><span>${b.username}</span><span style="color:${b.status === 'Bağlı' ? '#4ade80' : '#facc15'}">${b.status}</span></div>`
@@ -322,7 +325,6 @@
                     document.getElementById('multiBotList').innerText = 'Henüz çoklu bot sokulmadı.';
                 }
 
-                // Terminal Loglarını Yazdırma
                 if (mData.logs && mData.logs.length > 0) {
                     const termBox = document.getElementById('terminalLogs');
                     termBox.innerHTML = mData.logs.map(l => 
