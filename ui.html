@@ -8,15 +8,12 @@
         * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
         body { background-color: #121526; color: #c3c7db; min-height: 100vh; padding: 15px; display: flex; justify-content: center; align-items: flex-start; }
         
-        /* Ana Panel Konteyneri */
         .panel { background: #1c2237; border: 1px solid #2a314d; border-radius: 14px; width: 100%; max-width: 440px; padding: 18px; box-shadow: 0 10px 30px rgba(0,0,0,0.6); display: flex; flex-direction: column; gap: 14px; position: relative; }
         
-        /* Sabit Header (Üç Çizgili Menü) */
         .top-header { display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #2a314d; padding-bottom: 12px; }
         .hamburger-btn { font-size: 1.8rem; cursor: pointer; color: #818cf8; line-height: 1; user-select: none; padding: 2px 8px; border-radius: 6px; background: #141829; border: 1px solid #2a314d; }
         .header-title { font-size: 1.1rem; font-weight: 700; color: #f8fafc; }
 
-        /* Sol Kaydırılabilir Çekmece (Sidebar) */
         .backdrop { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0, 0, 0, 0.6); backdrop-filter: blur(3px); z-index: 99; display: none; opacity: 0; transition: opacity 0.3s ease; }
         .backdrop.active { display: block; opacity: 1; }
 
@@ -30,10 +27,13 @@
         .menu-item { padding: 12px 14px; background: #1c2237; border: 1px solid #2a314d; border-radius: 8px; cursor: pointer; font-size: 0.9rem; font-weight: 600; color: #c3c7db; transition: all 0.2s; display: flex; align-items: center; gap: 10px; }
         .menu-item:active, .menu-item.active { background: #818cf8; color: #1e1b4b; border-color: #818cf8; }
 
-        /* Form Girdileri ve Butonlar */
-        input { width: 100%; padding: 11px 14px; border-radius: 8px; border: 1px solid #2a314d; background: #141829; color: #fff; font-size: 0.85rem; outline: none; }
+        input[type="text"], input[type="password"], input[type="number"] { width: 100%; padding: 11px 14px; border-radius: 8px; border: 1px solid #2a314d; background: #141829; color: #fff; font-size: 0.85rem; outline: none; }
         input:focus { border-color: #818cf8; }
         input::placeholder { color: #525b7a; }
+
+        .checkbox-group { display: flex; flex-direction: column; gap: 8px; background: #141829; padding: 10px; border-radius: 8px; border: 1px solid #2a314d; }
+        .checkbox-item { display: flex; align-items: center; gap: 10px; font-size: 0.8rem; font-weight: 600; color: #cbd5e1; }
+        .checkbox-item input { width: 16px; height: 16px; accent-color: #818cf8; }
 
         .btn-group { display: flex; gap: 10px; }
         .btn { flex: 1; padding: 11px; border-radius: 8px; border: none; font-weight: 700; font-size: 0.85rem; cursor: pointer; transition: 0.2s; text-align: center; }
@@ -67,10 +67,8 @@
 </head>
 <body>
 
-    <!-- Karartma Arka Planı -->
     <div class="backdrop" id="backdrop" onclick="closeMenu()"></div>
 
-    <!-- Sol Kaydırılabilir Hamburger Menü -->
     <div class="drawer" id="drawer">
         <div class="drawer-header">
             <span>Menü / Modlar</span>
@@ -86,7 +84,6 @@
         </div>
     </div>
 
-    <!-- Ana Panel Konteyneri -->
     <div class="panel">
         <div class="top-header">
             <div class="hamburger-btn" onclick="openMenu()">☰</div>
@@ -139,7 +136,20 @@
             <input type="text" id="mHost" value="play.aesirmc.com" placeholder="Sunucu Adresi">
             <input type="text" id="mVersion" value="1.21.11" placeholder="Sürüm (1.21.11)">
             <input type="text" id="mPrefix" value="Bot" placeholder="Bot İsim Ön Eki (Örn: Bot)">
-            <input type="number" id="mCount" value="5" placeholder="Bot Sayısı (Max 20)">
+            <input type="number" id="mCount" value="10" placeholder="Bot Sayısı (Sınırsız)">
+            <input type="text" id="mCustomChat" placeholder="Sohbet Mesajı (Boşsa rastgele atar)">
+
+            <div class="checkbox-group">
+                <label class="checkbox-item">
+                    <input type="checkbox" id="mAutoReconnect" checked> Auto Reconnect (Oto Yeniden Bağlan)
+                </label>
+                <label class="checkbox-item">
+                    <input type="checkbox" id="mEnableMove" checked> Rastgele Hareket Et / Zıpla
+                </label>
+                <label class="checkbox-item">
+                    <input type="checkbox" id="mEnableChat" checked> Otomatik Chat Mesajı At
+                </label>
+            </div>
 
             <div class="btn-group">
                 <button class="btn btn-start" onclick="startMultiBots()">Çoklu Başlat</button>
@@ -215,7 +225,11 @@
                 host: document.getElementById('mHost').value,
                 version: document.getElementById('mVersion').value,
                 prefix: document.getElementById('mPrefix').value,
-                count: document.getElementById('mCount').value
+                count: document.getElementById('mCount').value,
+                customChat: document.getElementById('mCustomChat').value,
+                autoReconnect: document.getElementById('mAutoReconnect').checked,
+                enableMove: document.getElementById('mEnableMove').checked,
+                enableChat: document.getElementById('mEnableChat').checked
             };
             await fetch('/api/multibot/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
         }
