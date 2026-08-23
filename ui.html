@@ -1,94 +1,118 @@
 <!DOCTYPE html>
 <html lang="tr">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Otonom Bot Kontrol Paneli</title>
-    <style>
-        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
-        body { background-color: #0f172a; color: #f8fafc; padding: 20px; display: flex; flex-direction: column; align-items: center; min-height: 100vh; }
-        .container { max-width: 500px; width: 100%; background: #1e293b; padding: 25px; border-radius: 12px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); border: 1px solid #334155; }
-        h1 { font-size: 1.4rem; text-align: center; margin-bottom: 20px; color: #38bdf8; display: flex; align-items: center; justify-content: space-between; }
-        .status-badge { display: inline-block; padding: 4px 12px; border-radius: 20px; font-size: 0.8rem; font-weight: bold; text-transform: uppercase; }
-        .online { background: #059669; color: #ecfdf5; }
-        .offline { background: #dc2626; color: #fef2f2; }
-        .card-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-bottom: 20px; }
-        .card { background: #0f172a; padding: 12px; border-radius: 8px; border: 1px solid #334155; }
-        .card label { font-size: 0.75rem; color: #94a3b8; text-transform: uppercase; display: block; margin-bottom: 4px; }
-        .card .value { font-size: 1.1rem; font-weight: bold; color: #f1f5f9; }
-        .chat-section { display: flex; flex-direction: column; gap: 10px; margin-bottom: 15px; }
-        input[type="text"] { width: 100%; padding: 12px; border-radius: 8px; border: 1px solid #334155; background: #0f172a; color: #fff; font-size: 0.95rem; outline: none; }
-        input[type="text"]:focus { border-color: #38bdf8; }
-        button { background: #0284c7; color: white; border: none; padding: 12px; border-radius: 8px; font-weight: bold; font-size: 0.95rem; cursor: pointer; transition: 0.2s; }
-        button:hover { background: #0369a1; }
-        .viewer-btn { display: block; text-align: center; background: #334155; color: #38bdf8; padding: 10px; border-radius: 8px; text-decoration: none; font-size: 0.85rem; font-weight: bold; border: 1px solid #475569; }
-        .viewer-btn:hover { background: #475569; }
-    </style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bot Kontrol Paneli</title>
+  <style>
+    body { font-family: 'Segoe UI', sans-serif; background-color: #1a1b26; color: #a9b1d6; margin: 0; padding: 20px; display: flex; justify-content: center; }
+    .container { width: 100%; max-width: 480px; background: #24283b; padding: 20px; border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.4); }
+    h1 { text-align: center; color: #7aa2f7; font-size: 24px; margin-bottom: 20px; }
+    .input-group { margin-bottom: 10px; }
+    input { width: 100%; padding: 12px; border-radius: 8px; border: 1px solid #3b4261; background: #1f2335; color: #c0caf5; box-sizing: border-box; font-size: 14px; }
+    .btn-group { display: flex; gap: 10px; margin-bottom: 12px; }
+    button { flex: 1; padding: 12px; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; font-size: 14px; }
+    .btn-start { background: #9ece6a; color: #15161e; }
+    .btn-stop { background: #f7768e; color: #15161e; }
+    .btn-action { background: #7aa2f7; color: #15161e; }
+    .btn-warning { background: #ff9e64; color: #15161e; }
+    .stats { display: flex; gap: 10px; margin-bottom: 12px; }
+    .stat-box { flex: 1; background: #1f2335; padding: 10px; border-radius: 8px; text-align: center; }
+    .stat-label { font-size: 11px; color: #737aa2; font-weight: bold; }
+    .stat-val { font-size: 16px; font-weight: bold; color: #bb9af7; }
+    .status-bar { text-align: center; font-weight: bold; margin-bottom: 12px; font-size: 16px; color: #e0af68; }
+    .box { background: #1f2335; border-radius: 8px; padding: 12px; margin-bottom: 12px; max-height: 180px; overflow-y: auto; font-family: monospace; font-size: 12px; }
+    .chat-box { height: 160px; }
+    .chat-input { display: flex; gap: 8px; margin-top: 6px; }
+    .chat-input input { flex: 1; margin-bottom: 0; }
+    .chat-input button { flex: initial; width: 80px; background: #7aa2f7; color: #15161e; }
+    .radar-box { height: 110px; color: #9ece6a; }
+  </style>
 </head>
 <body>
-    <div class="container">
-        <h1>🤖 Otonom Bot <span id="status-badge" class="status-badge offline">OFFLINE</span></h1>
-        
-        <div class="card-grid">
-            <div class="card"><label>Bot İsmi</label><div class="value" id="username">-</div></div>
-            <div class="card"><label>Can</label><div class="value" id="health">- / 20</div></div>
-            <div class="card"><label>Açlık</label><div class="value" id="food">- / 20</div></div>
-            <div class="card"><label>Konum (X, Y, Z)</label><div class="value" id="position">0, 0, 0</div></div>
-        </div>
+  <div class="container">
+    <h1>Otonom Bot Paneli</h1>
+    <div class="input-group"><input type="text" id="groqKey" placeholder="Groq API Key (Boşsa Env)"></div>
+    <div class="input-group"><input type="text" id="host" placeholder="Sunucu IP" value="play.aesirmc.com"></div>
+    <div class="input-group"><input type="text" id="username" placeholder="Bot İsmi"></div>
+    <div class="input-group"><input type="password" id="password" placeholder="Şifre (/login)"></div>
+    <div class="input-group"><input type="text" id="version" placeholder="Minecraft Sürümü" value="1.21.11"></div>
 
-        <form class="chat-section" id="chat-form">
-            <input type="text" id="chat-input" placeholder="Sunucuya canlı mesaj yolla..." required autocomplete="off">
-            <button type="submit">Mesaj Gönder</button>
-        </form>
-
-        <a id="viewer-link" href="#" target="_blank" class="viewer-btn">🎥 Canlı 3D Ekranı Aç (Port 3007)</a>
+    <div class="btn-group">
+      <button class="btn-start" onclick="startBot()">Başlat</button>
+      <button class="btn-stop" onclick="stopBot()">Durdur</button>
     </div>
 
-    <script>
-        document.getElementById('viewer-link').href = `http://${window.location.hostname}:3007`;
+    <div class="status-bar" id="statusText">Durum: Kapalı</div>
 
-        async function updateStatus() {
-            try {
-                const res = await fetch('/api/status');
-                const data = await res.json();
-                
-                const badge = document.getElementById('status-badge');
-                if (data.status === 'online') {
-                    badge.className = 'status-badge online';
-                    badge.innerText = 'ONLINE';
-                    document.getElementById('username').innerText = data.username || '-';
-                    document.getElementById('health').innerText = (data.health !== undefined ? data.health : '-') + ' / 20';
-                    document.getElementById('food').innerText = (data.food !== undefined ? data.food : '-') + ' / 20';
-                    document.getElementById('position').innerText = data.position ? `${data.position.x}, ${data.position.y}, ${data.position.z}` : '0, 0, 0';
-                } else {
-                    badge.className = 'status-badge offline';
-                    badge.innerText = 'OFFLINE';
-                }
-            } catch (err) {
-                console.error('Status alınamadı:', err);
-            }
+    <div class="stats">
+      <div class="stat-box"><div class="stat-label">PING</div><div class="stat-val" id="pingVal">- ms</div></div>
+      <div class="stat-box"><div class="stat-label">TPS</div><div class="stat-val" id="tpsVal">-</div></div>
+    </div>
+
+    <h3 style="text-align:center; color:#7aa2f7; font-size:14px; margin:8px 0;">Hızlı Komutlar</h3>
+    <div class="btn-group">
+      <button class="btn-action" onclick="sendAction('jump')">Zıpla</button>
+      <button class="btn-action" onclick="sendAction('sneak')">Eğil/Kalk</button>
+      <button class="btn-stop" onclick="sendAction('stop')">Dur/İptal</button>
+    </div>
+    <div style="margin-bottom:12px;">
+      <button class="btn-warning" style="width:100%" onclick="sendAction('attack')">Yakındakine Saldır</button>
+    </div>
+
+    <h3 style="text-align:center; color:#7aa2f7; font-size:14px;">Canlı Sunucu Sohbeti</h3>
+    <div class="box chat-box" id="chatLogs"></div>
+    <div class="chat-input">
+      <input type="text" id="chatMsg" placeholder="Mesaj gönder..." onkeypress="if(event.key==='Enter') sendChat()">
+      <button onclick="sendChat()">Gönder</button>
+    </div>
+
+    <h3 style="text-align:center; color:#7aa2f7; font-size:14px; margin-top:12px;">Çevre Radarı</h3>
+    <div class="box radar-box" id="radarLogs">Yakında kimse yok.</div>
+  </div>
+
+  <script>
+    async function startBot() {
+      const data = {
+        host: document.getElementById('host').value,
+        username: document.getElementById('username').value,
+        password: document.getElementById('password').value,
+        version: document.getElementById('version').value,
+        groqKey: document.getElementById('groqKey').value
+      };
+      await fetch('/api/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+    }
+    async function stopBot() { await fetch('/api/stop', { method: 'POST' }); }
+    async function sendChat() {
+      const input = document.getElementById('chatMsg');
+      if (!input.value) return;
+      await fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: input.value }) });
+      input.value = '';
+    }
+    async function sendAction(action) {
+      await fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: action }) });
+    }
+
+    setInterval(async () => {
+      try {
+        const res = await fetch('/api/status');
+        const data = await res.json();
+        document.getElementById('statusText').innerText = 'Durum: ' + data.status;
+        document.getElementById('pingVal').innerText = data.ping + ' ms';
+        document.getElementById('tpsVal').innerText = data.tps;
+
+        const chatBox = document.getElementById('chatLogs');
+        chatBox.innerHTML = data.chatLogs.join('<br>');
+        chatBox.scrollTop = chatBox.scrollHeight;
+
+        const radarBox = document.getElementById('radarLogs');
+        if (data.radar && data.radar.length > 0) {
+          radarBox.innerHTML = data.radar.map(e => '[' + e.type + '] ' + e.name + ' (' + e.distance + 'm)').join('<br>');
+        } else {
+          radarBox.innerHTML = 'Yakında kimse yok.';
         }
-
-        document.getElementById('chat-form').addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const input = document.getElementById('chat-input');
-            const message = input.value.trim();
-            if (!message) return;
-
-            try {
-                await fetch('/api/chat', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ message })
-                });
-                input.value = '';
-            } catch (err) {
-                alert('Mesaj iletilemedi!');
-            }
-        });
-
-        setInterval(updateStatus, 2000);
-        updateStatus();
-    </script>
+      } catch (e) {}
+    }, 1000);
+  </script>
 </body>
   </html>
