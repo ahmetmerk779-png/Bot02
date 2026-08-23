@@ -14,7 +14,7 @@ async function processAI(bot, botState, sender, message, groqKey, botActions) {
   try {
     const groq = new Groq({ apiKey: groqKey });
     const response = await groq.chat.completions.create({
-      model: "llama-3.1-8b-instant",
+      model: "llama3-8b-8192", // 404 hatasını çözen kararlı model
       messages: [
         { role: "system", content: `Minecraft otonom AI botusun. Durum: ${JSON.stringify(botState)}.` },
         { role: "user", content: `${sender}: "${message}"` }
@@ -39,7 +39,9 @@ async function processAI(bot, botState, sender, message, groqKey, botActions) {
     } else if (choice.content) {
       bot.chat(choice.content.trim());
     }
-  } catch (err) { console.error('[AI HATA]', err.message); }
+  } catch (err) { 
+    console.error('[AI HATA]', err.message); 
+  }
 }
 
 module.exports = { processAI };
