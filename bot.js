@@ -102,7 +102,7 @@ function startBot(config) {
   state.isManualStop = false;
   state.status = "Bağlanıyor...";
   isLoggedIn = false;
-  state.isQueueing = true; // Başlangıçta duvarı çekiyoruz
+  state.isQueueing = true; 
   
   bot = mineflayer.createBot({
     host: config.host,
@@ -111,12 +111,9 @@ function startBot(config) {
     hideErrors: true,
   });
 
-  // 🚀 AĞ KATMANI AMELİYATI (PACKET INTERCEPTOR) 🚀
   const originalWrite = bot._client.write.bind(bot._client);
   bot._client.write = (name, data) => {
-    // Bot sıradayken veya geçişteyken tehlikeli paketleri FİLTRELE
     if (state.isQueueing) {
-      // DİKKAT: teleport_confirm listeden çıkarıldı! (TPA Onayı)
       const blockedPackets = [
         'position', 'position_look', 'look', 'flying', 
         'settings', 'client_information', 
@@ -150,16 +147,11 @@ function startBot(config) {
     lockBotForTransfer(8000);
   });
 
-  // TPA veya oyun içi ani ışınlanmalarda Velocity'yi çıldırtmamak için refleksleri dondur
+  // 🚀 YENİ TPA KORUMASI: Ağ paketleri kilitlenmeyecek, sadece hedefler sıfırlanacak!
   bot.on('forcedMove', () => {
-    // Işınlanma anında botun yürümesini ve tüm tuşlarını anında bırak
     try { bot.clearControlStates(); } catch(e){}
     try { bot.pathfinder.setGoal(null); } catch(e){}
-    
-    if (!state.isQueueing) {
-       logChat('[SİSTEM] Işınlanma (TPA) algılandı, fizik 2.5s kilitlendi.');
-       lockBotForTransfer(2500); 
-    }
+    logChat('[SİSTEM] Işınlanma (TPA) algılandı, bot hedeflerini sıfırladı.');
   });
 
   bot.on('messagestr', (msg) => {
@@ -168,7 +160,6 @@ function startBot(config) {
     
     const lower = msg.toLowerCase();
     
-    // Güvenlik duvarını tetikleyecek kelimeleri genişlettik (Restart ve acil lobyie atılma durumları eklendi)
     if (lower.includes('sırasına girdiniz') || 
         lower.includes('aktarım yapıyorsunuz') || 
         lower.includes('lobi sunucusuna') || 
