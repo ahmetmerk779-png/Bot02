@@ -2,81 +2,105 @@
 <html lang="tr">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Otonom Bot Paneli</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
-        body { background-color: #121526; color: #c3c7db; display: flex; justify-content: center; align-items: center; min-height: 100vh; padding: 20px; }
+        body { background-color: #121526; color: #c3c7db; min-height: 100vh; padding: 15px; display: flex; justify-content: center; align-items: flex-start; }
         
-        .panel { background: #1c2237; border: 1px solid #2a314d; border-radius: 12px; width: 100%; max-width: 420px; padding: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); display: flex; flex-direction: column; gap: 12px; position: relative; overflow: hidden; }
+        /* Ana Panel Konteyneri */
+        .panel { background: #1c2237; border: 1px solid #2a314d; border-radius: 14px; width: 100%; max-width: 440px; padding: 18px; box-shadow: 0 10px 30px rgba(0,0,0,0.6); display: flex; flex-direction: column; gap: 14px; position: relative; }
         
-        /* Hamburger Header */
-        .header { display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #2a314d; padding-bottom: 10px; }
-        .hamburger { font-size: 1.5rem; cursor: pointer; color: #818cf8; user-select: none; }
-        .title { font-size: 1.1rem; font-weight: 700; color: #7882a4; }
+        /* Sabit Header (Üç Çizgili Menü) */
+        .top-header { display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #2a314d; padding-bottom: 12px; }
+        .hamburger-btn { font-size: 1.8rem; cursor: pointer; color: #818cf8; line-height: 1; user-select: none; padding: 2px 8px; border-radius: 6px; background: #141829; border: 1px solid #2a314d; }
+        .header-title { font-size: 1.1rem; font-weight: 700; color: #f8fafc; }
 
-        /* Sidebar Drawer */
-        .sidebar { position: absolute; top: 0; left: -250px; width: 220px; height: 100%; background: #141829; border-right: 1px solid #2a314d; transition: 0.3s ease; z-index: 10; padding: 20px; display: flex; flex-direction: column; gap: 15px; }
-        .sidebar.active { left: 0; }
-        .sidebar-title { font-weight: 700; color: #818cf8; font-size: 1rem; border-bottom: 1px solid #2a314d; padding-bottom: 8px; }
-        .menu-item { padding: 10px; background: #1c2237; border-radius: 6px; cursor: pointer; font-size: 0.85rem; font-weight: 600; color: #c3c7db; transition: 0.2s; }
-        .menu-item:hover { background: #2a314d; color: #fff; }
+        /* Sol Kaydırılabilir Çekmece (Sidebar) */
+        .backdrop { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0, 0, 0, 0.6); backdrop-filter: blur(3px); z-index: 99; display: none; opacity: 0; transition: opacity 0.3s ease; }
+        .backdrop.active { display: block; opacity: 1; }
 
-        input { width: 100%; padding: 10px 14px; border-radius: 6px; border: 1px solid #2a314d; background: #141829; color: #fff; font-size: 0.85rem; outline: none; }
+        .drawer { position: fixed; top: 0; left: 0; width: 270px; height: 100%; background: #141829; border-right: 1px solid #2a314d; z-index: 100; transform: translateX(-100%); transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1); padding: 20px; display: flex; flex-direction: column; gap: 15px; box-shadow: 5px 0 25px rgba(0,0,0,0.7); }
+        .drawer.active { transform: translateX(0); }
+        
+        .drawer-header { font-weight: 700; color: #818cf8; font-size: 1.1rem; border-bottom: 1px solid #2a314d; padding-bottom: 10px; display: flex; justify-content: space-between; align-items: center; }
+        .drawer-close { cursor: pointer; color: #94a3b8; font-size: 1.2rem; }
+        
+        .menu-list { display: flex; flex-direction: column; gap: 10px; margin-top: 10px; }
+        .menu-item { padding: 12px 14px; background: #1c2237; border: 1px solid #2a314d; border-radius: 8px; cursor: pointer; font-size: 0.9rem; font-weight: 600; color: #c3c7db; transition: all 0.2s; display: flex; align-items: center; gap: 10px; }
+        .menu-item:active, .menu-item.active { background: #818cf8; color: #1e1b4b; border-color: #818cf8; }
+
+        /* Form Girdileri ve Butonlar */
+        input { width: 100%; padding: 11px 14px; border-radius: 8px; border: 1px solid #2a314d; background: #141829; color: #fff; font-size: 0.85rem; outline: none; }
+        input:focus { border-color: #818cf8; }
         input::placeholder { color: #525b7a; }
 
         .btn-group { display: flex; gap: 10px; }
-        .btn { flex: 1; padding: 10px; border-radius: 6px; border: none; font-weight: 700; font-size: 0.85rem; cursor: pointer; transition: 0.2s; text-align: center; }
-        .btn-start { background: #86efac; color: #14532d; }
+        .btn { flex: 1; padding: 11px; border-radius: 8px; border: none; font-weight: 700; font-size: 0.85rem; cursor: pointer; transition: 0.2s; text-align: center; }
+        .btn-start { background: #4ade80; color: #064e3b; }
         .btn-stop { background: #f87171; color: #7f1d1d; }
         
-        .status-text { text-align: center; font-size: 0.85rem; font-weight: 700; color: #facc15; }
+        .status-text { text-align: center; font-size: 0.9rem; font-weight: 700; color: #facc15; }
         
-        .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; background: #141829; padding: 10px; border-radius: 6px; text-align: center; border: 1px solid #2a314d; }
-        .stat-item label { display: block; font-size: 0.65rem; font-weight: 700; color: #64748b; }
-        .stat-item val { font-size: 0.9rem; font-weight: 700; color: #a855f7; }
+        .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; background: #141829; padding: 10px; border-radius: 8px; text-align: center; border: 1px solid #2a314d; }
+        .stat-item label { display: block; font-size: 0.7rem; font-weight: 700; color: #64748b; }
+        .stat-item val { font-size: 0.95rem; font-weight: 700; color: #a855f7; }
 
-        .section-label { text-align: center; font-size: 0.75rem; font-weight: 700; color: #64748b; margin-top: 4px; }
+        .section-label { text-align: center; font-size: 0.75rem; font-weight: 700; color: #64748b; margin-top: 2px; }
 
         .quick-cmds-row { display: flex; gap: 8px; }
-        .btn-cmd { background: #818cf8; color: #1e1b4b; padding: 8px; font-size: 0.8rem; }
+        .btn-cmd { background: #818cf8; color: #1e1b4b; padding: 9px; font-size: 0.8rem; }
         .btn-cancel { background: #f87171; color: #7f1d1d; }
-        .btn-attack { background: #fb923c; color: #4c1d95; width: 100%; padding: 10px; font-size: 0.85rem; }
+        .btn-attack { background: #fb923c; color: #4c1d95; width: 100%; padding: 11px; font-size: 0.85rem; }
 
-        .console-box { background: #141829; border: 1px solid #2a314d; border-radius: 6px; padding: 10px; height: 120px; overflow-y: auto; font-size: 0.8rem; font-family: monospace; color: #94a3b8; word-break: break-word; }
+        .console-box { background: #141829; border: 1px solid #2a314d; border-radius: 8px; padding: 10px; height: 130px; overflow-y: auto; font-size: 0.8rem; font-family: monospace; color: #94a3b8; word-break: break-word; }
         .chat-input-bar { display: flex; gap: 8px; }
-        .btn-send { background: #818cf8; color: #1e1b4b; width: 80px; padding: 10px; }
-        .radar-box { background: #141829; border: 1px solid #2a314d; border-radius: 6px; padding: 10px; height: 110px; overflow-y: auto; font-size: 0.8rem; font-family: monospace; color: #4ade80; white-space: pre-wrap; word-break: break-all; }
+        .btn-send { background: #818cf8; color: #1e1b4b; width: 85px; padding: 10px; }
+        .radar-box { background: #141829; border: 1px solid #2a314d; border-radius: 8px; padding: 10px; height: 120px; overflow-y: auto; font-size: 0.8rem; font-family: monospace; color: #4ade80; white-space: pre-wrap; word-break: break-all; }
 
         .view { display: flex; flex-direction: column; gap: 12px; }
         .hidden { display: none !important; }
 
-        .bot-list { background: #141829; border: 1px solid #2a314d; border-radius: 6px; padding: 10px; height: 200px; overflow-y: auto; font-size: 0.8rem; font-family: monospace; }
-        .bot-item { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px dashed #2a314d; }
+        .bot-list { background: #141829; border: 1px solid #2a314d; border-radius: 8px; padding: 10px; height: 220px; overflow-y: auto; font-size: 0.8rem; font-family: monospace; }
+        .bot-item { display: flex; justify-content: space-between; padding: 8px 4px; border-bottom: 1px dashed #2a314d; }
     </style>
 </head>
 <body>
 
+    <!-- Karartma Arka Planı -->
+    <div class="backdrop" id="backdrop" onclick="closeMenu()"></div>
+
+    <!-- Sol Kaydırılabilir Hamburger Menü -->
+    <div class="drawer" id="drawer">
+        <div class="drawer-header">
+            <span>Menü / Modlar</span>
+            <span class="drawer-close" onclick="closeMenu()">✕</span>
+        </div>
+        <div class="menu-list">
+            <div class="menu-item active" id="itemSingle" onclick="switchView('single')">
+                <span>🤖</span> Tekli Bot Paneli
+            </div>
+            <div class="menu-item" id="itemMulti" onclick="switchView('multi')">
+                <span>👥</span> Çoklu Bot Spawner
+            </div>
+        </div>
+    </div>
+
+    <!-- Ana Panel Konteyneri -->
     <div class="panel">
-        <div class="sidebar" id="sidebar">
-            <div class="sidebar-title">Navigasyon</div>
-            <div class="menu-item" onclick="switchView('single')">🤖 Tekli Bot Paneli</div>
-            <div class="menu-item" onclick="switchView('multi')">👥 Çoklu Bot Spawner</div>
+        <div class="top-header">
+            <div class="hamburger-btn" onclick="openMenu()">☰</div>
+            <div class="header-title" id="pageTitle">Tekli Bot Paneli</div>
+            <div style="width: 30px;"></div>
         </div>
 
-        <div class="header">
-            <div class="hamburger" onclick="toggleSidebar()">☰</div>
-            <div class="title" id="pageTitle">Tekli Bot Paneli</div>
-            <div></div>
-        </div>
-
-        <!-- VIEW 1: TEKLİ BOT -->
+        <!-- 1. BÖLÜM: TEKLİ BOT -->
         <div id="viewSingle" class="view">
             <input type="text" id="groqKey" placeholder="Groq API Key (Boşsa Env)">
             <input type="text" id="host" value="play.aesirmc.com" placeholder="Sunucu Adresi">
-            <input type="text" id="username" placeholder="Bot İsmi">
+            <input type="text" id="username" placeholder="Bot İsmi (Örn: OtonomBot)">
             <input type="password" id="password" placeholder="Şifre (/login)">
-            <input type="text" id="version" value="1.21.11" placeholder="Sürüm">
+            <input type="text" id="version" value="1.21.11" placeholder="Sürüm (1.21.11)">
 
             <div class="btn-group">
                 <button class="btn btn-start" onclick="startBot()">Başlat</button>
@@ -110,10 +134,10 @@
             <div class="radar-box" id="radar">Yakında kimse yok.</div>
         </div>
 
-        <!-- VIEW 2: ÇOKLU BOT -->
+        <!-- 2. BÖLÜM: ÇOKLU BOT -->
         <div id="viewMulti" class="view hidden">
             <input type="text" id="mHost" value="play.aesirmc.com" placeholder="Sunucu Adresi">
-            <input type="text" id="mVersion" value="1.21.11" placeholder="Sürüm">
+            <input type="text" id="mVersion" value="1.21.11" placeholder="Sürüm (1.21.11)">
             <input type="text" id="mPrefix" value="Bot" placeholder="Bot İsim Ön Eki (Örn: Bot)">
             <input type="number" id="mCount" value="5" placeholder="Bot Sayısı (Max 20)">
 
@@ -123,25 +147,41 @@
             </div>
 
             <div class="section-label">Aktif Bot Listesi</div>
-            <div class="bot-list" id="multiBotList">Henüz çoklu bot yok.</div>
+            <div class="bot-list" id="multiBotList">Henüz çoklu bot sokulmadı.</div>
         </div>
     </div>
 
     <script>
-        function toggleSidebar() {
-            document.getElementById('sidebar').classList.toggle('active');
+        function openMenu() {
+            document.getElementById('drawer').classList.add('active');
+            document.getElementById('backdrop').classList.add('active');
+        }
+
+        function closeMenu() {
+            document.getElementById('drawer').classList.remove('active');
+            document.getElementById('backdrop').classList.remove('active');
         }
 
         function switchView(view) {
-            document.getElementById('sidebar').classList.remove('active');
+            closeMenu();
+            const singleView = document.getElementById('viewSingle');
+            const multiView = document.getElementById('viewMulti');
+            const singleItem = document.getElementById('itemSingle');
+            const multiItem = document.getElementById('itemMulti');
+            const title = document.getElementById('pageTitle');
+
             if (view === 'single') {
-                document.getElementById('viewSingle').classList.remove('hidden');
-                document.getElementById('viewMulti').classList.add('hidden');
-                document.getElementById('pageTitle').innerText = 'Tekli Bot Paneli';
+                singleView.classList.remove('hidden');
+                multiView.classList.add('hidden');
+                singleItem.classList.add('active');
+                multiItem.classList.remove('active');
+                title.innerText = 'Tekli Bot Paneli';
             } else {
-                document.getElementById('viewSingle').classList.add('hidden');
-                document.getElementById('viewMulti').classList.remove('hidden');
-                document.getElementById('pageTitle').innerText = 'Çoklu Bot Spawner';
+                singleView.classList.add('hidden');
+                multiView.classList.remove('hidden');
+                multiItem.classList.add('active');
+                singleItem.classList.remove('active');
+                title.innerText = 'Çoklu Bot Spawner';
             }
         }
 
@@ -186,7 +226,7 @@
 
         async function updateStatus() {
             try {
-                // Single Status
+                // Tekli Bot Verisi
                 const res = await fetch('/api/status');
                 const data = await res.json();
                 document.getElementById('status').innerText = data.statusText || (data.online ? 'Bağlı' : 'Kapalı');
@@ -199,7 +239,7 @@
                 }
                 if (data.radar) document.getElementById('radar').innerText = data.radar;
 
-                // Multi Status
+                // Çoklu Bot Verisi
                 const mRes = await fetch('/api/multibot/status');
                 const mData = await mRes.json();
                 if (mData.bots && mData.bots.length > 0) {
@@ -207,7 +247,7 @@
                         `<div class="bot-item"><span>${b.username}</span><span style="color:#facc15">${b.status}</span></div>`
                     ).join('');
                 } else {
-                    document.getElementById('multiBotList').innerText = 'Henüz çoklu bot yok.';
+                    document.getElementById('multiBotList').innerText = 'Henüz çoklu bot sokulmadı.';
                 }
             } catch (e) {}
         }
