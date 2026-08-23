@@ -3,13 +3,26 @@ const path = require('path');
 const mineflayer = require('mineflayer');
 const { pathfinder } = require('mineflayer-pathfinder');
 const pvp = require('mineflayer-pvp').plugin;
-const axios = require('axios');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.use(express.json());
 app.use(express.static(__dirname));
+
+// 🛡️ CHUNK & PROTOKOL ÇÖKME KORUMASI (read 63 67 PartialReadError Engelleyici)
+process.on('uncaughtException', (err) => {
+    const msg = err ? err.message || err.toString() : '';
+    if (msg.includes('Read') || msg.includes('chunk') || msg.includes('protocol') || msg.includes('PartialReadError')) {
+        console.log('[KORUMA] Chunk paket hatası yakalandı, çökme engellendi:', msg);
+        return;
+    }
+    console.error('[SİSTEM HAKİKİ HATA]', err);
+});
+
+process.on('unhandledRejection', (reason) => {
+    console.log('[KORUMA] Yakalanmayan söz (promise) hatası engellendi:', reason);
+});
 
 let bot = null;
 let botStatus = 'Kapalı';
@@ -27,7 +40,7 @@ function canProcessMessage() {
     return true;
 }
 
-// 🛡️ KORUMA: Minecraft Renk ve Format Kodlarını (§a, §c) Temizleme
+// 🛡️ KORUMA: Renk ve Format Kodlarını (§a, §c) Temizleme
 function cleanText(text) {
     if (!text) return '';
     if (typeof text === 'object') {
@@ -41,24 +54,30 @@ function addChatLog(msg) {
     if (chatLogs.length > 50) chatLogs.shift();
 }
 
-// 🤖 Groq AI Karar Motoru
+// 🤖 Groq AI Karar Motoru (Dış paket gerektirmeyen yerleşik Fetch kullanımı)
 async function askGroqAI(userMessage, sender, apiKey) {
     try {
-        const response = await axios.post('https://api.groq.com/openai/v1/chat/completions', {
-            model: 'llama-3.3-70b-versatile',
-            messages: [
-                {
-                    role: 'system',
-                    content: 'Sen bir Minecraft botusun. Sana gelen mesajlara kısa, mantıklı cevaplar ver veya /me, /say tarzı komut yanıtı döndür. Sadece net yanıt ver.'
-                },
-                { role: 'user', content: `${sender} dedi ki: ${userMessage}` }
-            ],
-            max_tokens: 100
-        }, {
-            headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' }
+        const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${apiKey}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                model: 'llama-3.3-70b-versatile',
+                messages: [
+                    {
+                        role: 'system',
+                        content: 'Sen bir Minecraft botusun. Sana gelen mesajlara kısa, mantıklı cevaplar ver. Sadece net yanıt ver.'
+                    },
+                    { role: 'user', content: `${sender} dedi ki: ${userMessage}` }
+                ],
+                max_tokens: 100
+            })
         });
 
-        return response.data.choices[0]?.message?.content || null;
+        const data = await response.json();
+        return data.choices?.[0]?.message?.content || null;
     } catch (err) {
         addChatLog(`[GROQ HATA] ${err.message}`);
         return null;
@@ -111,7 +130,7 @@ app.post('/api/start', (req, res) => {
     const activeGroqKey = groqKey || process.env.GROQ_API_KEY;
 
     botStatus = 'Bağlanıyor...';
-    addChatLog('[SİSTEM] Bot koruma protokolleriyle başlatılıyor...');
+    addChatLog('[SİSTEM] Bot başlatılıyor...');
 
     try {
         bot = mineflayer.createBot({
@@ -119,8 +138,6 @@ app.post('/api/start', (req, res) => {
             port: 25565,
             username: username || 'OtonomBot',
             version: version || '1.21.11',
-            
-            // 🛡️ ANTI-BOT & VELOCITY BYPASS KORUMALARI
             fakeHost: host || 'play.aesirmc.com',
             checkTimeoutInterval: 60 * 1000,
             brand: 'vanilla',
@@ -132,9 +149,8 @@ app.post('/api/start', (req, res) => {
 
         bot.once('spawn', () => {
             botStatus = 'Bağlı';
-            addChatLog('[SİSTEM] Anti-bot koruması aşıldı, sunucuya girildi!');
+            addChatLog('[SİSTEM] Sunucuya girildi!');
             
-            // 🛡️ Otomatik Giriş Koruması
             if (password) {
                 setTimeout(() => {
                     bot.chat(`/login ${password}`);
@@ -143,22 +159,16 @@ app.post('/api/start', (req, res) => {
             }
         });
 
-        // 🛡️ Otomatik Yeniden Doğma
         bot.on('death', () => {
-            addChatLog('[KORUMA] Bot öldü, 1 sn içinde respawn olunuyor...');
+            addChatLog('[KORUMA] Bot öldü, 1 sn sonra doğuyor...');
             setTimeout(() => { try { bot.respawn(); } catch (e) {} }, 1000);
         });
 
-        // 💬 Sohbet ve AI Fısıltı Dinleyicisi
-        bot.on('messagestr', async (message, messagePosition, jsonMsg) => {
+        bot.on('messagestr', async (message) => {
             addChatLog(message);
 
-            // Fısıltı Tespiti (Örn: "Oyuncu adli oyuncu size fısıldıyor: merhaba")
             if (message.includes('fısıldıyor') || message.includes('whispers')) {
-                if (!canProcessMessage()) {
-                    addChatLog('[KORUMA] 3.5s bekleme süresi dolmadığı için fısıltı korumaya takıldı.');
-                    return;
-                }
+                if (!canProcessMessage()) return;
 
                 if (activeGroqKey) {
                     const parts = message.split(':');
@@ -174,7 +184,6 @@ app.post('/api/start', (req, res) => {
             }
         });
 
-        // 🛡️ Kick Mesajı Ayıklama
         bot.on('kicked', (reason) => {
             botStatus = 'Atıldı';
             let parsedReason = reason;
@@ -185,13 +194,15 @@ app.post('/api/start', (req, res) => {
         });
 
         bot.on('error', (err) => {
+            // Chunk hatalarını console log olarak düşür ama bot durumunu çökertme
+            if (err.message && err.message.includes('Read')) return;
             botStatus = 'Hata';
             addChatLog(`[HATA] ${err.message}`);
         });
 
         bot.on('end', () => {
             botStatus = 'Kapalı';
-            addChatLog('[SİSTEM] Bağlantı sonlandı.');
+            addChatLog('[SİSTEM] Bağlantı kesildi.');
         });
 
     } catch (err) {
@@ -244,5 +255,5 @@ app.post('/api/chat', (req, res) => {
 });
 
 app.listen(PORT, () => {
-    console.log(`[RENDER] Sunucu ve Korumalar ${PORT} portunda aktif.`);
+    console.log(`[RENDER] Sunucu ${PORT} portunda sorunsuz aktif.`);
 });
