@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bot Kontrol Paneli</title>
+  <style>
+    body { font-family: 'Segoe UI', sans-serif; background-color: #1a1b26; color: #a9b1d6; margin: 0; padding: 20px; display: flex; justify-content: center; }
+    .container { width: 100%; max-width: 480px; background: #24283b; padding: 20px; border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.4); }
+    h1 { text-align: center; color: #7aa2f7; font-size: 24px; margin-bottom: 20px; }
+    .input-group { margin-bottom: 10px; }
+    input { width: 100%; padding: 12px; border-radius: 8px; border: 1px solid #3b4261; background: #1f2335; color: #c0caf5; box-sizing: border-box; font-size: 14px; }
+    .btn-group { display: flex; gap: 10px; margin-bottom: 12px; }
+    button { flex: 1; padding: 12px; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; font-size: 14px; }
+    .btn-start { background: #9ece6a; color: #15161e; }
+    .btn-stop { background: #f7768e; color: #15161e; }
+    .btn-action { background: #7aa2f7; color: #15161e; }
+    .btn-warning { background: #ff9e64; color: #15161e; }
+    .stats { display: flex; gap: 10px; margin-bottom: 12px; }
+    .stat-box { flex: 1; background: #1f2335; padding: 10px; border-radius: 8px; text-align: center; }
+    .stat-label { font-size: 11px; color: #737aa2; font-weight: bold; }
+    .stat-val { font-size: 16px; font-weight: bold; color: #bb9af7; }
+    .status-bar { text-align: center; font-weight: bold; margin-bottom: 12px; font-size: 16px; color: #e0af68; }
+    .box { background: #1f2335; border-radius: 8px; padding: 12px; margin-bottom: 12px; max-height: 180px; overflow-y: auto; font-family: monospace; font-size: 12px; }
+    .chat-box { height: 160px; }
+    .chat-input { display: flex; gap: 8px; margin-top: 6px; }
+    .chat-input input { flex: 1; margin-bottom: 0; }
+    .chat-input button { flex: initial; width: 80px; background: #7aa2f7; color: #15161e; }
+    .radar-box { height: 110px; color: #9ece6a; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Otonom Bot Paneli</h1>
+    <div class="input-group"><input type="text" id="groqKey" placeholder="Groq API Key (Boşsa Env)"></div>
+    <div class="input-group"><input type="text" id="host" placeholder="Sunucu IP" value="play.aesirmc.com"></div>
+    <div class="input-group"><input type="text" id="username" placeholder="Bot İsmi"></div>
+    <div class="input-group"><input type="password" id="password" placeholder="Şifre (/login)"></div>
+    <div class="input-group"><input type="text" id="version" placeholder="Minecraft Sürümü" value="1.21.11"></div>
+
+    <div class="btn-group">
+      <button class="btn-start" onclick="startBot()">Başlat</button>
+      <button class="btn-stop" onclick="stopBot()">Durdur</button>
+    </div>
+
+    <div class="status-bar" id="statusText">Durum: Kapalı</div>
+
+    <div class="stats">
+      <div class="stat-box"><div class="stat-label">PING</div><div class="stat-val" id="pingVal">- ms</div></div>
+      <div class="stat-box"><div class="stat-label">TPS</div><div class="stat-val" id="tpsVal">-</div></div>
+    </div>
+
+    <h3 style="text-align:center; color:#7aa2f7; font-size:14px; margin:8px 0;">Hızlı Komutlar</h3>
+    <div class="btn-group">
+      <button class="btn-action" onclick="sendAction('jump')">Zıpla</button>
+      <button class="btn-action" onclick="sendAction('sneak')">Eğil/Kalk</button>
+      <button class="btn-stop" onclick="sendAction('stop')">Dur/İptal</button>
+    </div>
+    <div style="margin-bottom:12px;">
+      <button class="btn-warning" style="width:100%" onclick="sendAction('attack')">Yakındakine Saldır</button>
+    </div>
+
+    <h3 style="text-align:center; color:#7aa2f7; font-size:14px;">Canlı Sunucu Sohbeti</h3>
+    <div class="box chat-box" id="chatLogs"></div>
+    <div class="chat-input">
+      <input type="text" id="chatMsg" placeholder="Mesaj gönder..." onkeypress="if(event.key==='Enter') sendChat()">
+      <button onclick="sendChat()">Gönder</button>
+    </div>
+
+    <h3 style="text-align:center; color:#7aa2f7; font-size:14px; margin-top:12px;">Çevre Radarı</h3>
+    <div class="box radar-box" id="radarLogs">Yakında kimse yok.</div>
+  </div>
+
+  <script>
+    async function startBot() {
+      const data = {
+        host: document.getElementById('host').value,
+        username: document.getElementById('username').value,
+        password: document.getElementById('password').value,
+        version: document.getElementById('version').value,
+        groqKey: document.getElementById('groqKey').value
+      };
+      await fetch('/api/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+    }
+    async function stopBot() { await fetch('/api/stop', { method: 'POST' }); }
+    async function sendChat() {
+      const input = document.getElementById('chatMsg');
+      if (!input.value) return;
+      await fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: input.value }) });
+      input.value = '';
+    }
+    async function sendAction(action) {
+      await fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: action }) });
+    }
+
+    setInterval(async () => {
+      try {
+        const res = await fetch('/api/status');
+        const data = await res.json();
+        document.getElementById('statusText').innerText = 'Durum: ' + data.status;
+        document.getElementById('pingVal').innerText = data.ping + ' ms';
+        document.getElementById('tpsVal').innerText = data.tps;
+
+        const chatBox = document.getElementById('chatLogs');
+        chatBox.innerHTML = data.chatLogs.join('<br>');
+        chatBox.scrollTop = chatBox.scrollHeight;
+
+        const radarBox = document.getElementById('radarLogs');
+        if (data.radar && data.radar.length > 0) {
+          radarBox.innerHTML = data.radar.map(e => '[' + e.type + '] ' + e.name + ' (' + e.distance + 'm)').join('<br>');
+        } else {
+          radarBox.innerHTML = 'Yakında kimse yok.';
+        }
+      } catch (e) {}
+    }, 1000);
+  </script>
+</body>
+  </html>
