@@ -10,18 +10,18 @@ const PORT = process.env.PORT || 3000;
 app.use(express.json());
 app.use(express.static(__dirname));
 
-// 🛡️ CHUNK & PROTOKOL ÇÖKME KORUMASI (read 63 67 PartialReadError Engelleyici)
+// 🛡️ CHUNK, PROTOKOL VE SUNUCU GEÇİŞ (BUNGEECORD) ÇÖKME KORUMASI
 process.on('uncaughtException', (err) => {
     const msg = err ? err.message || err.toString() : '';
-    if (msg.includes('Read') || msg.includes('chunk') || msg.includes('protocol') || msg.includes('PartialReadError')) {
-        console.log('[KORUMA] Chunk paket hatası yakalandı, çökme engellendi:', msg);
+    if (msg.includes('Read') || msg.includes('chunk') || msg.includes('protocol') || msg.includes('PartialReadError') || msg.includes('ECONNRESET')) {
+        console.log('[KORUMA] Ağ/Chunk paketi hatası yakalandı:', msg);
         return;
     }
     console.error('[SİSTEM HAKİKİ HATA]', err);
 });
 
 process.on('unhandledRejection', (reason) => {
-    console.log('[KORUMA] Yakalanmayan söz (promise) hatası engellendi:', reason);
+    console.log('[KORUMA] Yakalanmayan söz hatası engellendi:', reason);
 });
 
 let bot = null;
@@ -31,7 +31,6 @@ let radarText = 'Yakında kimse yok.';
 let ping = '-';
 let tps = '-';
 
-// 🛡️ KORUMA: 3.5 Saniyelik Mesaj / Fısıltı Spam Engeli
 let lastProcessedTime = 0;
 function canProcessMessage() {
     const now = Date.now();
@@ -40,7 +39,6 @@ function canProcessMessage() {
     return true;
 }
 
-// 🛡️ KORUMA: Renk ve Format Kodlarını (§a, §c) Temizleme
 function cleanText(text) {
     if (!text) return '';
     if (typeof text === 'object') {
@@ -54,7 +52,6 @@ function addChatLog(msg) {
     if (chatLogs.length > 50) chatLogs.shift();
 }
 
-// 🤖 Groq AI Karar Motoru (Dış paket gerektirmeyen yerleşik Fetch kullanımı)
 async function askGroqAI(userMessage, sender, apiKey) {
     try {
         const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
@@ -68,7 +65,7 @@ async function askGroqAI(userMessage, sender, apiKey) {
                 messages: [
                     {
                         role: 'system',
-                        content: 'Sen bir Minecraft botusun. Sana gelen mesajlara kısa, mantıklı cevaplar ver. Sadece net yanıt ver.'
+                        content: 'Sen bir Minecraft botusun. Sana gelen mesajlara kısa, mantıklı cevaplar ver.'
                     },
                     { role: 'user', content: `${sender} dedi ki: ${userMessage}` }
                 ],
@@ -149,13 +146,13 @@ app.post('/api/start', (req, res) => {
 
         bot.once('spawn', () => {
             botStatus = 'Bağlı';
-            addChatLog('[SİSTEM] Sunucuya girildi!');
+            addChatLog('[SİSTEM] Sunucuya başarıyla girildi!');
             
+            // Sadece tek komut gönderimi (Çifte komut atılmasını engelleme)
             if (password) {
                 setTimeout(() => {
                     bot.chat(`/login ${password}`);
-                    bot.chat(`/register ${password} ${password}`);
-                }, 2000);
+                }, 1500);
             }
         });
 
@@ -166,6 +163,12 @@ app.post('/api/start', (req, res) => {
 
         bot.on('messagestr', async (message) => {
             addChatLog(message);
+            const lowerMsg = message.toLowerCase();
+
+            // Akıllı Akış: Eğer sunucu kayıt olmanızı isterse otomatik /register atar
+            if ((lowerMsg.includes('register') || lowerMsg.includes('kayıt ol')) && password) {
+                setTimeout(() => bot.chat(`/register ${password} ${password}`), 1000);
+            }
 
             if (message.includes('fısıldıyor') || message.includes('whispers')) {
                 if (!canProcessMessage()) return;
@@ -194,8 +197,7 @@ app.post('/api/start', (req, res) => {
         });
 
         bot.on('error', (err) => {
-            // Chunk hatalarını console log olarak düşür ama bot durumunu çökertme
-            if (err.message && err.message.includes('Read')) return;
+            if (err.message && (err.message.includes('Read') || err.message.includes('ECONNRESET'))) return;
             botStatus = 'Hata';
             addChatLog(`[HATA] ${err.message}`);
         });
@@ -255,5 +257,5 @@ app.post('/api/chat', (req, res) => {
 });
 
 app.listen(PORT, () => {
-    console.log(`[RENDER] Sunucu ${PORT} portunda sorunsuz aktif.`);
+    console.log(`[RENDER] Sunucu ${PORT} portunda aktif.`);
 });
