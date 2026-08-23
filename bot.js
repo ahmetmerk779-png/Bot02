@@ -116,18 +116,17 @@ function startBot(config) {
   bot._client.write = (name, data) => {
     // Bot sıradayken veya geçişteyken tehlikeli paketleri FİLTRELE
     if (state.isQueueing) {
+      // DİKKAT: teleport_confirm listeden çıkarıldı! (TPA Onayı)
       const blockedPackets = [
         'position', 'position_look', 'look', 'flying', 
-        'settings', 'client_information', 'teleport_confirm', 
+        'settings', 'client_information', 
         'arm_animation', 'use_item', 'block_place', 'vehicle_move'
       ];
       
       if (blockedPackets.includes(name)) {
-        // Velocity'nin sevmediği tüm paketler burada imha ediliyor
         return; 
       }
     }
-    // Tehlikeli değilse veya bot serbestse paketin gitmesine izin ver
     originalWrite(name, data);
   };
 
@@ -137,11 +136,10 @@ function startBot(config) {
 
   bot.on('spawn', () => {
     logChat('[SİSTEM] Dünyaya ayak basıldı, paketler analiz ediliyor...');
-    // Sunucu tamamen yüklenene kadar Güvenlik Duvarı 3 saniye daha aktif kalsın
     setTimeout(() => {
       if (bot) {
         state.status = "Doğdu / Çalışıyor";
-        state.isQueueing = false; // Duvar indirildi, fizik aktif!
+        state.isQueueing = false; 
         logChat('[SİSTEM] Güvenlik duvarı indirildi, bot serbest.');
       }
     }, 3000);
@@ -152,14 +150,32 @@ function startBot(config) {
     lockBotForTransfer(8000);
   });
 
+  // TPA veya oyun içi ani ışınlanmalarda Velocity'yi çıldırtmamak için refleksleri dondur
+  bot.on('forcedMove', () => {
+    // Işınlanma anında botun yürümesini ve tüm tuşlarını anında bırak
+    try { bot.clearControlStates(); } catch(e){}
+    try { bot.pathfinder.setGoal(null); } catch(e){}
+    
+    if (!state.isQueueing) {
+       logChat('[SİSTEM] Işınlanma (TPA) algılandı, fizik 2.5s kilitlendi.');
+       lockBotForTransfer(2500); 
+    }
+  });
+
   bot.on('messagestr', (msg) => {
     logChat(msg);
     checkAutoLogin(msg);
     
     const lower = msg.toLowerCase();
     
-    if (lower.includes('sırasına girdiniz') || lower.includes('aktarım yapıyorsunuz')) {
-        lockBotForTransfer(25000); // Sıra beklerken duvarı uzun tut
+    // Güvenlik duvarını tetikleyecek kelimeleri genişlettik (Restart ve acil lobyie atılma durumları eklendi)
+    if (lower.includes('sırasına girdiniz') || 
+        lower.includes('aktarım yapıyorsunuz') || 
+        lower.includes('lobi sunucusuna') || 
+        lower.includes('yeniden başlatılıyor')) {
+        
+        logChat('[SİSTEM] Acil durum veya sahte bakım tespit edildi, ağ kilitleniyor!');
+        lockBotForTransfer(25000); 
     } else if (lower.includes('başarıyla giriş') || lower.includes('login succes')) {
         logChat('[SİSTEM] Şifre onaylandı, ağ katmanı kilitleniyor...');
         lockBotForTransfer(10000);
