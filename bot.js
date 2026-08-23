@@ -18,7 +18,7 @@ function logChat(msg) {
   if (state.chatLogs.length > 50) state.chatLogs.shift();
 }
 
-// Sunucunun attığı [object Object] hatasını düzgün metne çeviren fonksiyon
+// 1.21 NBT ve JSON yapılarını temiz okuyan güncel çevirmen
 function parseKickReason(reason) {
   if (!reason) return "Bilinmeyen Neden";
   try {
@@ -29,9 +29,13 @@ function parseKickReason(reason) {
       return reason;
     }
     if (typeof reason === 'object') {
+      // Karmaşık NBT (compound) formatını yakala
+      if (reason.type === 'compound' && reason.value && reason.value.text && reason.value.text.value) {
+        return reason.value.text.value;
+      }
       if (reason.text) return reason.text;
       if (reason.extra) return reason.extra.map(e => e.text || '').join('');
-      return JSON.stringify(reason); // Hiçbir formata uymazsa olduğu gibi yazdır
+      return JSON.stringify(reason);
     }
   } catch (e) {
     return typeof reason === 'object' ? JSON.stringify(reason) : String(reason);
@@ -39,38 +43,36 @@ function parseKickReason(reason) {
   return String(reason);
 }
 
-// Lobi -> Asıl Sunucu aktarımında botu tamamen donduran kilit sistemi
+// Fiziği açık bırakarak sadece hedefleri sıfırlayan güvenli TPA kilidi
 function lockBotForTransfer() {
-  if (state.isQueueing) return; // Zaten kilitliyse işlem yapma
+  if (state.isQueueing) return;
   state.isQueueing = true;
   state.status = "Aktarım/Sunucu Geçişi...";
   
   if (bot) {
     try { bot.clearControlStates(); } catch(e){}
     try { bot.pathfinder.stop(); bot.pathfinder.setGoal(null); } catch(e){}
-    if (bot.physics) bot.physics.enabled = false; // Hareket paketlerini tamamen kes
+    // bot.physics.enabled kapatılmadı! TeleportConfirm paketinin gidebilmesi için açık kalmalı.
   }
   
-  // 5 Saniye sonra botu serbest bırak
   setTimeout(() => {
     if (bot && state.isQueueing) {
-      if (bot.physics) bot.physics.enabled = true;
       state.isQueueing = false;
       state.status = "Çalışıyor";
-      logChat('[SİSTEM] Aktarım tamamlandı, fizik aktif.');
+      logChat('[SİSTEM] Aktarım/TPA süreci tamamlandı.');
     }
-  }, 5000);
+  }, 4000);
 }
 
-// Giriş mesajını tespit edip sadece BİR KERE login gönderen sistem
+// Spam engelleyici ile güvenli Auto-Login
 function checkAutoLogin(msg) {
   const lower = msg.toLowerCase();
   if ((lower.includes('/login') || lower.includes('şifre') || lower.includes('giris yap')) && !isLoggedIn) {
+    isLoggedIn = true; // KİLİDİ ANINDA DEVREYE SOK Kİ İKİNCİ MESAJDA TETİKLENMESİN
     if (state.config.password && bot) {
       setTimeout(() => {
         bot.chat(`/login ${state.config.password}`);
         logChat('[SİSTEM] Otomatik /login gönderildi.');
-        isLoggedIn = true; // Spam yapmaması için kilitledik
       }, 1500);
     }
   }
@@ -108,14 +110,14 @@ function startBot(config) {
   state.config = config;
   state.isManualStop = false;
   state.status = "Bağlanıyor...";
-  isLoggedIn = false; // Her bağlandığında sıfırla
+  isLoggedIn = false; // Her bağlantıda login kilidini sıfırla
   
   bot = mineflayer.createBot({
     host: config.host,
     username: config.username,
     version: config.version || "1.21.11",
     hideErrors: true,
-    brand: "vanilla" // Bazı sunucular bunu görmeyince hile sanıp atar
+    brand: "vanilla"
   });
 
   bot.loadPlugin(pathfinder);
@@ -125,11 +127,9 @@ function startBot(config) {
   bot.on('spawn', () => {
     state.status = "Doğdu / Çalışıyor";
     logChat('[SİSTEM] Dünyaya giriş yapıldı (Spawn).');
-    if (bot.physics) bot.physics.enabled = true;
     state.isQueueing = false;
   });
 
-  // TPA / Alt Sunucu Değişimlerini Yakala ve Dondur
   bot.on('respawn', () => {
     logChat('[SİSTEM] Sunucu değişimi / Respawn algılandı.');
     lockBotForTransfer();
@@ -140,7 +140,6 @@ function startBot(config) {
     logChat(msg);
     checkAutoLogin(msg);
     
-    // TPA ve Aktarım Mesajları
     if (msg.includes('Aktarım yapıyorsunuz') || msg.includes('Aktarım başladı') || msg.includes('sırasına girdiniz')) {
       lockBotForTransfer();
     }
@@ -169,15 +168,14 @@ function startBot(config) {
     }
   }, 2000);
 
-  // KICK (Sunucudan Atılma) DURUMUNU OKUMA
   bot.on('kicked', (reason) => {
     const clearReason = parseKickReason(reason);
-    logChat(`[SİSTEM DİREKT ATILMA] Neden: ${clearReason}`);
+    logChat(`[SİSTEM ATILMA] Neden: ${clearReason}`);
     handleReconnect();
   });
 
   bot.on('end', (reason) => {
-    logChat(`[SİSTEM] Bağlantı sonlandı. Neden: ${reason || 'Bilinmiyor'}`);
+    logChat(`[SİSTEM] Bağlantı sonlandı.`);
     handleReconnect();
   });
   
