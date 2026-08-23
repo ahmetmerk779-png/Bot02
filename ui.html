@@ -61,7 +61,7 @@
         .view { display: flex; flex-direction: column; gap: 12px; }
         .hidden { display: none !important; }
 
-        .bot-list { background: #141829; border: 1px solid #2a314d; border-radius: 8px; padding: 10px; height: 220px; overflow-y: auto; font-size: 0.8rem; font-family: monospace; }
+        .bot-list { background: #141829; border: 1px solid #2a314d; border-radius: 8px; padding: 10px; height: 180px; overflow-y: auto; font-size: 0.8rem; font-family: monospace; }
         .bot-item { display: flex; justify-content: space-between; padding: 8px 4px; border-bottom: 1px dashed #2a314d; }
     </style>
 </head>
@@ -156,6 +156,13 @@
                 <button class="btn btn-stop" onclick="stopMultiBots()">Tümünü Durdur</button>
             </div>
 
+            <!-- Toplu Terminal / Komut Gönderme Barı -->
+            <div class="section-label">Toplu Terminal (Hepsine Gönder)</div>
+            <form class="chat-input-bar" onsubmit="sendMultiCommand(event)">
+                <input type="text" id="mCommandMsg" placeholder="Tüm botlara komut/mesaj (Örn: /spawn)" autocomplete="off">
+                <button type="submit" class="btn btn-send">Gönder</button>
+            </form>
+
             <div class="section-label">Aktif Bot Listesi</div>
             <div class="bot-list" id="multiBotList">Henüz çoklu bot sokulmadı.</div>
         </div>
@@ -236,6 +243,14 @@
 
         async function stopMultiBots() {
             await fetch('/api/multibot/stop', { method: 'POST' });
+        }
+
+        async function sendMultiCommand(e) {
+            e.preventDefault();
+            const input = document.getElementById('mCommandMsg');
+            if (!input.value) return;
+            await fetch('/api/multibot/command', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ command: input.value }) });
+            input.value = '';
         }
 
         async function updateStatus() {
