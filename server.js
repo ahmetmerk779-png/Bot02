@@ -10,16 +10,23 @@ const PORT = process.env.PORT || 3000;
 app.use(express.json());
 app.use(express.static(__dirname));
 
-// 🛡️ CHUNK VE PROTOKOL ÇÖKME KORUMASI
+// 🛡️ CHUNK, PROTOKOL VE YAKALANMAYAN PAKET HATA FİLTRESİ
 process.on('uncaughtException', (err) => {
     const msg = err ? err.message || err.toString() : '';
-    if (msg.includes('Read') || msg.includes('chunk') || msg.includes('protocol') || msg.includes('PartialReadError') || msg.includes('ECONNRESET')) {
-        return;
+    if (
+        msg.includes('Read') || 
+        msg.includes('chunk') || 
+        msg.includes('protocol') || 
+        msg.includes('PartialReadError') || 
+        msg.includes('ECONNRESET') ||
+        msg.includes('partial packet')
+    ) {
+        return; // Paket okuma hatalarını sessizce yut
     }
     console.error('[SİSTEM HAKİKİ HATA]', err);
 });
 
-process.on('unhandledRejection', (reason) => {});
+process.on('unhandledRejection', () => {});
 
 // --- TEKLİ BOT DEĞİŞKENLERİ ---
 let bot = null;
@@ -30,7 +37,7 @@ let ping = '-';
 let tps = '-';
 
 // --- ÇOKLU BOT DEĞİŞKENLERİ ---
-let multiBots = []; // { id, username, instance, status }
+let multiBots = [];
 
 let lastProcessedTime = 0;
 function canProcessMessage() {
@@ -134,8 +141,16 @@ app.post('/api/start', (req, res) => {
             checkTimeoutInterval: 120 * 1000,
             brand: 'vanilla',
             viewDistance: 'tiny',
-            physicsEnabled: false
+            physicsEnabled: false,
+            hideErrors: true // Protocol ayrıştırma hatalarını konsola basmaz
         });
+
+        // Alt Seviye Paket Okuma Hata Filtresi
+        if (bot._client) {
+            bot._client.on('error', (err) => {
+                // partial packet / chunk size hatalarını görmezden gel
+            });
+        }
 
         bot.loadPlugin(pathfinder);
         bot.loadPlugin(pvp);
@@ -163,7 +178,12 @@ app.post('/api/start', (req, res) => {
         });
 
         bot.on('kicked', (reason) => { botStatus = 'Atıldı'; addChatLog(`[KICK] ${cleanText(reason)}`); });
-        bot.on('error', (err) => { if (!err.message?.includes('Read')) { botStatus = 'Hata'; addChatLog(`[HATA] ${err.message}`); } });
+        bot.on('error', (err) => { 
+            const msg = err.message || '';
+            if (msg.includes('Read') || msg.includes('partial') || msg.includes('ECONNRESET')) return;
+            botStatus = 'Hata'; 
+            addChatLog(`[HATA] ${msg}`); 
+        });
         bot.on('end', () => { botStatus = 'Kapalı'; addChatLog('[SİSTEM] Bağlantı kesildi.'); });
     } catch (err) { botStatus = 'Hata'; }
     res.json({ success: true });
@@ -204,7 +224,7 @@ app.get('/api/multibot/status', (req, res) => {
 
 app.post('/api/multibot/start', (req, res) => {
     const { host, version, count, prefix } = req.body;
-    const botCount = Math.min(Math.max(parseInt(count) || 1, 1), 20); // Max 20 bot
+    const botCount = Math.min(Math.max(parseInt(count) || 1, 1), 20);
 
     for (let i = 0; i < botCount; i++) {
         setTimeout(() => {
@@ -219,8 +239,13 @@ app.post('/api/multibot/start', (req, res) => {
                     checkTimeoutInterval: 120 * 1000,
                     brand: 'vanilla',
                     viewDistance: 'tiny',
-                    physicsEnabled: false
+                    physicsEnabled: false,
+                    hideErrors: true
                 });
+
+                if (mb._client) {
+                    mb._client.on('error', () => {});
+                }
 
                 const botObj = { username, instance: mb, status: 'Bağlanıyor...' };
                 multiBots.push(botObj);
@@ -230,7 +255,7 @@ app.post('/api/multibot/start', (req, res) => {
                 mb.on('error', () => { botObj.status = 'Hata'; });
                 mb.on('end', () => { botObj.status = 'Kapalı'; });
             } catch (e) {}
-        }, i * 1500); // Anti-bot yakalanmamak için 1.5 sn arayla sokulur
+        }, i * 1500);
     }
 
     res.json({ success: true });
