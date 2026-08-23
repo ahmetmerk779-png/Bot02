@@ -87,7 +87,7 @@ function lockBotForTransfer(timeoutMs = 15000) {
     if (bot && state.isQueueing) {
       state.isQueueing = false;
       state.status = "Çalışıyor";
-      logChat('[SİSTEM] Bekleme süresi doldu, duvar açıldı.');
+      logChat('[SİSTEM] Bekleme süresi doldu, protokol kararlı.');
     }
   }, timeoutMs);
 }
@@ -111,39 +111,50 @@ function startBot(config) {
     hideErrors: true,
   });
 
-  const originalWrite = bot._client.write.bind(bot._client);
-  bot._client.write = (name, data) => {
-    if (state.isQueueing) {
-      const blockedPackets = [
-        'position', 'position_look', 'look', 'flying', 
-        'settings', 'client_information', 
-        'arm_animation', 'use_item', 'block_place', 'vehicle_move'
-      ];
-      
-      if (blockedPackets.includes(name)) {
-        return; 
+  // 🛡️ PROTOCOL SEVİYESİNDE INTERNAL ERROR KORUYUCU ZIRH 🛡️
+  if (bot && bot._client) {
+    const originalWrite = bot._client.write.bind(bot._client);
+    bot._client.write = (name, data) => {
+      // Sunucunun protokolünü patlatabilecek tüm şüpheli hareket ve istemci bilgi paketlerini kes
+      if (state.isQueueing) {
+        const unsafePackets = [
+          'position', 'position_look', 'look', 'flying', 
+          'settings', 'client_information', 
+          'arm_animation', 'use_item', 'block_place', 'vehicle_move',
+          'teleport_confirm' // Internal error tetiklememesi için ilk anda onay paketini de susturuyoruz
+        ];
+        
+        if (unsafePackets.includes(name)) {
+          return; 
+        }
       }
-    }
-    originalWrite(name, data);
-  };
+      originalWrite(name, data);
+    };
+
+    // Sunucudan gelen gelen ham paket hatalarını yakala ve yut ki bot çökmüş gibi davranmasın
+    bot._client.on('error', (err) => {
+      // Protokol seviyesi uyarılarını logla ama botu düşürme
+      logChat(`[PROTOKOL UYARI]: ${err.message}`);
+    });
+  }
 
   bot.loadPlugin(pathfinder);
   bot.loadPlugin(pvp);
   bot.loadPlugin(collectBlock);
 
   bot.on('spawn', () => {
-    logChat('[SİSTEM] Dünyaya ayak basıldı, paketler analiz ediliyor...');
+    logChat('[SİSTEM] Protokol kararlı, dünyaya giriş yapıldı.');
     setTimeout(() => {
       if (bot) {
         state.status = "Doğdu / Çalışıyor";
         state.isQueueing = false; 
-        logChat('[SİSTEM] Güvenlik duvarı indirildi, bot serbest.');
+        logChat('[SİSTEM] Güvenlik duvarı indirildi, bot tam yetkili.');
       }
-    }, 3000);
+    }, 4000);
   });
 
   bot.on('respawn', () => {
-    logChat('[SİSTEM] Boyut geçişi! Güvenlik duvarı aktif edildi.');
+    logChat('[SİSTEM] Boyut/Sunucu geçişi! Protokol kilitlendi.');
     lockBotForTransfer(8000);
   });
 
@@ -153,12 +164,12 @@ function startBot(config) {
     
     if (bot) {
         bot.physicsEnabled = false;
-        logChat('[SİSTEM] TPA algılandı. Fizik motoru 2s kapatıldı.');
+        logChat('[SİSTEM] Işınlanma algılandı, protokol stabilitesi için fizik 2s askıda.');
 
         setTimeout(() => {
             if (bot) {
                 bot.physicsEnabled = true;
-                logChat('[SİSTEM] Fizik geri açıldı.');
+                logChat('[SİSTEM] Fizik ve protokol senkronize edildi.');
             }
         }, 2000);
     }
@@ -175,15 +186,14 @@ function startBot(config) {
         lower.includes('lobi sunucusuna') || 
         lower.includes('yeniden başlatılıyor')) {
         
-        logChat('[SİSTEM] Acil durum veya sahte bakım tespit edildi, ağ kilitleniyor!');
+        logChat('[SİSTEM] Sunucu aktarımı algılandı, protokol kilitleniyor!');
         lockBotForTransfer(25000); 
     } else if (lower.includes('başarıyla giriş') || lower.includes('login succes')) {
-        logChat('[SİSTEM] Şifre onaylandı, ağ katmanı kilitleniyor...');
+        logChat('[SİSTEM] Giriş başarılı, protokol sabitleniyor...');
         lockBotForTransfer(10000);
     }
   });
 
-  // 🛡️ GÜVENLİ CHAT DİNLEYİCİSİ (Null Pointer / username çökmelerine son)
   bot.on('chat', async (username, message) => {
     if (!username || username === bot.username || state.isQueueing) return;
     const botState = { health: bot.health, position: bot.entity ? bot.entity.position : null, inventory: 'Dolu' };
