@@ -10,18 +10,18 @@ const PORT = process.env.PORT || 3000;
 app.use(express.json());
 app.use(express.static(__dirname));
 
-// 🛡️ CHUNK, PROTOKOL VE SUNUCU GEÇİŞ (BUNGEECORD) ÇÖKME KORUMASI
+// 🛡️ CHUNK, PROTOKOL VE SUNUCU GEÇİŞ (BUNGEECORD / VELOCITY) ÇÖKME KORUMASI
 process.on('uncaughtException', (err) => {
     const msg = err ? err.message || err.toString() : '';
     if (msg.includes('Read') || msg.includes('chunk') || msg.includes('protocol') || msg.includes('PartialReadError') || msg.includes('ECONNRESET')) {
-        console.log('[KORUMA] Ağ/Chunk paketi hatası yakalandı:', msg);
+        console.log('[KORUMA] Ağ/Paket hatası engellendi:', msg);
         return;
     }
     console.error('[SİSTEM HAKİKİ HATA]', err);
 });
 
 process.on('unhandledRejection', (reason) => {
-    console.log('[KORUMA] Yakalanmayan söz hatası engellendi:', reason);
+    console.log('[KORUMA] Promise hatası engellendi:', reason);
 });
 
 let bot = null;
@@ -39,11 +39,29 @@ function canProcessMessage() {
     return true;
 }
 
+// 🛡️ Derinlemesine JSON Kick ve Chat Temizleme
 function cleanText(text) {
     if (!text) return '';
+    
     if (typeof text === 'object') {
-        try { text = JSON.stringify(text); } catch (e) { text = String(text); }
+        try {
+            if (text.text) text = text.text;
+            else if (text.value) text = text.value;
+            else text = JSON.stringify(text);
+        } catch (e) {
+            text = String(text);
+        }
     }
+
+    if (typeof text === 'string' && text.startsWith('{')) {
+        try {
+            const parsed = JSON.parse(text);
+            if (parsed.text) text = parsed.text;
+            else if (parsed.value) text = parsed.value;
+            else if (parsed.extra) text = parsed.extra.map(e => e.text || e).join('');
+        } catch (e) {}
+    }
+
     return String(text).replace(/§[0-9a-fk-or]/gi, '').trim();
 }
 
@@ -136,9 +154,10 @@ app.post('/api/start', (req, res) => {
             username: username || 'OtonomBot',
             version: version || '1.21.11',
             fakeHost: host || 'play.aesirmc.com',
-            checkTimeoutInterval: 60 * 1000,
+            checkTimeoutInterval: 120 * 1000,
             brand: 'vanilla',
-            physicsEnabled: true
+            viewDistance: 'tiny',          // Aktarım esnasında chunk yükünü azaltır
+            physicsEnabled: false          // Sunucu aktarımı bitene kadar fiziği kapalı tutuyoruz
         });
 
         bot.loadPlugin(pathfinder);
@@ -146,9 +165,13 @@ app.post('/api/start', (req, res) => {
 
         bot.once('spawn', () => {
             botStatus = 'Bağlı';
-            addChatLog('[SİSTEM] Sunucuya başarıyla girildi!');
+            addChatLog('[SİSTEM] Sunucuya girildi!');
             
-            // Sadece tek komut gönderimi (Çifte komut atılmasını engelleme)
+            // Alt sunucuya aktarım paketleri otursun diye fiziği 3.5 sn sonra açıyoruz
+            setTimeout(() => {
+                if (bot && bot.physics) bot.physics.enabled = true;
+            }, 3500);
+
             if (password) {
                 setTimeout(() => {
                     bot.chat(`/login ${password}`);
@@ -165,7 +188,6 @@ app.post('/api/start', (req, res) => {
             addChatLog(message);
             const lowerMsg = message.toLowerCase();
 
-            // Akıllı Akış: Eğer sunucu kayıt olmanızı isterse otomatik /register atar
             if ((lowerMsg.includes('register') || lowerMsg.includes('kayıt ol')) && password) {
                 setTimeout(() => bot.chat(`/register ${password} ${password}`), 1000);
             }
@@ -189,11 +211,7 @@ app.post('/api/start', (req, res) => {
 
         bot.on('kicked', (reason) => {
             botStatus = 'Atıldı';
-            let parsedReason = reason;
-            if (typeof reason === 'object' && reason !== null) {
-                parsedReason = reason.value || reason.text || JSON.stringify(reason);
-            }
-            addChatLog(`[KICK] Sunucudan atıldı: ${cleanText(parsedReason)}`);
+            addChatLog(`[KICK] Sunucudan atıldı: ${cleanText(reason)}`);
         });
 
         bot.on('error', (err) => {
